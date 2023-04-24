@@ -384,11 +384,11 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 
 		for len(stack) > 0 {
 			state := pop(&stack)
-			seen := active_states[state]
+			if active_states[state] { continue }
 			active_states[state] = true
-			if seen { continue }
 			for t in nfa.transitions[state] {
-				if match_transition(t.match, r) {
+				if !active_states[t.to] && match_transition(t.match, r) {
+					active_states[t.to] = true
 					append(&stack, t.to)
 				}
 			}
