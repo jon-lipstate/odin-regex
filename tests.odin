@@ -6,15 +6,25 @@ import _spall "core:prof/spall"
 spall :: _spall
 spall_ctx: spall.Context
 spall_buffer: spall.Buffer
-TRACE :: spall.SCOPED_EVENT
+
+ENABLE_SPALL :: #config(ENABLE_SPALL, true)
+
+when ENABLE_SPALL {
+	TRACE :: spall.SCOPED_EVENT
+} else {
+	TRACE :: proc(ctx: ^spall.Context, buf: ^spall.Buffer, name: string) {}
+}
 
 ///
 main :: proc() {
-	// spall_ctx = spall.context_create("regex.spall")
-	// defer spall.context_destroy(&spall_ctx)
-	// buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
-	// spall_buffer = spall.buffer_create(buffer_backing)
-	// defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+
+	when ENABLE_SPALL {
+		spall_ctx = spall.context_create("regex.spall")
+		defer spall.context_destroy(&spall_ctx)
+		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+		spall_buffer = spall.buffer_create(buffer_backing)
+		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+	}
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	regex := "([0-9]+)-([0-9]+)-([0-9]+)"
 	// regex := "a|b"
