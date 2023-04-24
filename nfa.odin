@@ -365,34 +365,47 @@ match_transition :: proc(m: MatchKind, input: rune) -> bool {
 
 match :: proc(nfa: ^NFA, input: string) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	states_a := set.init(int)
-	defer set.destroy(&states_a)
-	states_b := set.init(int)
-	defer set.destroy(&states_b)
+	// TODO: these could be replaced with `core:container/bit_array` for better performance on
+	// sparse sets of states.
+	states_a := make([]bool, len(nfa.transitions))
+	defer delete(states_a)
+	states_b := make([]bool, len(nfa.transitions))
+	defer delete(states_b)
 
-	current_states := &states_a
-	next_states := &states_b
+	current_states := states_a
+	next_states := states_b
 
-	update_active_states :: proc(nfa: ^NFA, active_states: ^Set(int), state: int, r: rune) {
+	update_active_states :: proc(nfa: ^NFA, active_states: []bool, state: int, r: rune) #no_bounds_check {
 		TRACE(&spall_ctx, &spall_buffer, #procedure)
-		seen := !set.add(active_states, state)
-		if seen {return}
-		for t in nfa.transitions[state] {
-			if match_transition(t.match, r) {
-				update_active_states(nfa, active_states, t.to, r)
+
+		@static stack: [dynamic]int
+		append(&stack, state)
+		defer clear(&stack)
+
+		for len(stack) > 0 {
+			state := pop(&stack)
+			seen := active_states[state]
+			active_states[state] = true
+			if seen { continue }
+			for t in nfa.transitions[state] {
+				if match_transition(t.match, r) {
+					append(&stack, t.to)
+				}
 			}
 		}
 	}
+
 	strlen := len(input)
 	update_active_states(nfa, current_states, nfa.start, 0)
 	// Iterate through input characters
 	for r, i in input {
-		set.clear_set(next_states)
-		for state in current_states.m {
+		for b in &next_states {b = false}
+		for is_active, state in current_states {
+			if !is_active {continue}
 			for t in nfa.transitions[state] {
 				if match_transition(t.match, r) {
 					update_active_states(nfa, next_states, t.to, r)
-					set.add(next_states, t.to)
+					next_states[t.to] = true
 				}
 			}
 		}
@@ -402,7 +415,7 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 	// fmt.println("current_states", current_states.m)
 	// fmt.println("next_states", next_states.m)
 	// Check if the final state is active
-	for state in current_states.m {if state == nfa.end {return true}}
+	for is_active, state in current_states {if is_active && state == nfa.end {return true}}
 	return false
 }
 
