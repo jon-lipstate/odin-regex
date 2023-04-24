@@ -9,7 +9,7 @@ Automata :: struct {
 	end:   int,
 }
 NFA :: struct {
-	transitions: map[int]Transitions,
+	transitions: [dynamic]Transitions,
 	start:       int,
 	end:         int,
 }
@@ -31,7 +31,7 @@ make_nfa :: proc(allocator := context.allocator) -> NFA {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	context.allocator = allocator
 	nfa := NFA {
-		transitions = make(map[int]Transitions),
+		transitions = make([dynamic]Transitions),
 		start       = -1,
 		end         = -1,
 	}
@@ -39,7 +39,7 @@ make_nfa :: proc(allocator := context.allocator) -> NFA {
 }
 destroy_nfa :: proc(nfa: ^NFA) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	for _, v in nfa.transitions {
+	for v in nfa.transitions {
 		delete(v)
 	}
 	delete(nfa.transitions)
@@ -48,7 +48,7 @@ add_state :: proc(nfa: ^NFA, allocator := context.allocator) -> int {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	context.allocator = allocator
 	id := len(nfa.transitions)
-	nfa.transitions[id] = make([dynamic]Transition)
+	append(&nfa.transitions, Transitions{})
 	return id
 }
 compile_nfa :: proc(ast: Expr, allocator := context.allocator) -> NFA {
@@ -231,16 +231,28 @@ repeat_fragment :: proc(nfa: ^NFA, to_clone: Automata, start_at: int) -> (cloned
 move_to_end :: proc(nfa: ^NFA, start: int, end: int) -> Set(int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	s := set.init(int)
-	visit :: proc(transitions: ^map[int]Transitions, visited: ^Set(int), current: int, end: int) {
-		TRACE(&spall_ctx, &spall_buffer, #procedure)
-		if set.contains(visited, current) {return}
-		set.add(visited, current)
-		if current == end {return}
-		for transition in transitions[current] {
-			visit(transitions, visited, transition.to, end)
+
+	seen := make([]bool, len(nfa.transitions))
+	seen[start] = true
+	defer delete(seen)
+	stack := [dynamic]int{start}
+
+	for len(stack) > 0 {
+		state := pop(&stack)
+		for transition in &nfa.transitions[state] {
+			if !seen[transition.to] {
+				seen[transition.to] = true
+				append(&stack, transition.to)
+			}
 		}
 	}
-	visit(&nfa.transitions, &s, start, end)
+
+	for was_seen, state in seen {
+		if was_seen {
+			set.add(&s, state)
+		}
+	}
+
 	return s
 }
 WHITESPACE := []rune{' ', '\t', '\v', '\n', '\r', '\f'}
@@ -394,51 +406,59 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 	return false
 }
 
-epsilon_closure :: proc(nfa: ^NFA, state: int) -> [dynamic]int {
+epsilon_closure :: proc(nfa: ^NFA, start: int) -> [dynamic]int {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	closure := make([dynamic]int)
-	seen := make(map[int]bool)
+
+	stack := [dynamic]int{start}
+	defer delete(stack)
+
+	seen := make([]bool, len(nfa.transitions))
+	seen[start] = true
 	defer delete(seen)
 
-	visit :: proc(nfa: ^NFA, seen: ^map[int]bool, closure: ^[dynamic]int, state: int) {
-		if state in seen {return}
-		seen[state] = true
-		append(closure, state)
-		for t in nfa.transitions[state] {
-			if match_transition(t.match, 0) {
-				visit(nfa, seen, closure, t.to)
+	for len(stack) > 0 {
+		state := pop(&stack)
+		append(&closure, state)
+		for t in &nfa.transitions[state] {
+			if !seen[t.to] && match_transition(t.match, 0) {
+				seen[t.to] = true
+				append(&stack, t.to)
 			}
 		}
 	}
-	visit(nfa, &seen, &closure, state)
+
 	return closure
 }
-reachable :: proc(transitions: map[int]Transitions, start: int) -> [dynamic]int {
+reachable :: proc(transitions: [dynamic]Transitions, start: int) -> [dynamic]int {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	closure := make([dynamic]int)
-	seen := make(map[int]bool)
+
+	stack := [dynamic]int{start}
+	defer delete(stack)
+
+	seen := make([]bool, len(transitions))
+	seen[start] = true
 	defer delete(seen)
 
-	visit :: proc(
-		transitions: map[int]Transitions,
-		seen: ^map[int]bool,
-		closure: ^[dynamic]int,
-		state: int,
-	) {
-		if state in seen {return}
-		seen[state] = true
-		append(closure, state)
+	for len(stack) > 0 {
+		state := pop(&stack)
+		append(&closure, state)
 		for t in transitions[state] {
-			visit(transitions, seen, closure, t.to)
+			if !seen[t.to] {
+				seen[t.to] = true
+				append(&stack, t.to)
+			}
 		}
 	}
-	visit(transitions, &seen, &closure, start)
+
 	return closure
 }
 eliminate_epsilons :: proc(nfa: ^NFA) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	new_transitions := make(map[int]Transitions)
-	for state, transitions in &nfa.transitions {
+	new_transitions := make([dynamic]Transitions, len(nfa.transitions))
+	for transitions, state in &nfa.transitions {
+		if len(transitions) == 0 { continue }
 		new_transitions[state] = make([dynamic]Transition, 0, len(transitions))
 		closure := epsilon_closure(nfa, state)
 		defer delete(closure)
@@ -459,7 +479,7 @@ eliminate_epsilons :: proc(nfa: ^NFA) {
 		}
 	}
 	// Copy over the clean paths:
-	for _, v in &nfa.transitions {delete(v)}
+	for v in &nfa.transitions {delete(v)}
 	clear(&nfa.transitions)
 	reach := reachable(new_transitions, nfa.start);defer delete(reach)
 	for r in reach {nfa.transitions[r] = new_transitions[r]}
