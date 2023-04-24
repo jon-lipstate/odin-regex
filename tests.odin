@@ -2,11 +2,17 @@ package regex
 import "core:fmt"
 import "core:strings"
 import "core:strconv"
-import _spall "core:prof/spall"
-spall :: _spall
+import "core:prof/spall"
 spall_ctx: spall.Context
 spall_buffer: spall.Buffer
-TRACE :: spall.SCOPED_EVENT
+
+ENABLE_SPALL :: #config(ENABLE_SPALL, false)
+
+TRACE :: #force_inline proc (ctx: ^spall.Context, buf: ^spall.Buffer, name: string) {
+	when ENABLE_SPALL {
+		spall.SCOPED_EVENT(ctx, buf, name)
+	}
+}
 
 ///
 main :: proc() {
