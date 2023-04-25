@@ -1,5 +1,7 @@
 .vscode
 *.exe
 *.pdb
+*.bin
 scratch
 ols.json
+*.spall
