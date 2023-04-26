@@ -2,19 +2,20 @@ package regex
 import "core:fmt"
 import "core:strings"
 import "core:strconv"
+import "core:intrinsics"
+import "core:time"
 import _spall "core:prof/spall"
 spall :: _spall
 spall_ctx: spall.Context
 spall_buffer: spall.Buffer
 
-ENABLE_SPALL :: #config(ENABLE_SPALL, true)
+ENABLE_SPALL :: #config(ENABLE_SPALL, false)
 
 when ENABLE_SPALL {
 	TRACE :: spall.SCOPED_EVENT
 } else {
 	TRACE :: proc(ctx: ^spall.Context, buf: ^spall.Buffer, name: string) {}
 }
-
 ///
 main :: proc() {
 
@@ -32,12 +33,23 @@ main :: proc() {
 	// AST of Regex Inputs:
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-	for k, v in nfa.transitions {fmt.println(k, v)}
-	fmt.printf("start:%v, end:%v\n", nfa.start, nfa.end)
+	// for k, v in nfa.transitions {fmt.println(k, v)}
+	// fmt.printf("start:%v, end:%v\n", nfa.start, nfa.end)
 
 	str := "650-253-0001"
+
+	// Best of n-match with rdtsc:
+	for i := 0; i < 5; i += 1 {
+		start_tsc := intrinsics.read_cycle_counter()
+		m := match(&nfa, str)
+		clocks := f64(intrinsics.read_cycle_counter() - start_tsc)
+		freq, freq_ok := time.tsc_frequency()
+		fmt.printf("clocks:%.0f cy,freq:%.0f hz\n", clocks, f64(freq))
+		fmt.printf("match: %.0f ns\n", clocks / f64(freq) * f64(1_000_000_000))
+	}
+
 	m := match(&nfa, str)
-	// fmt.printf("regex:\"%s\", str:\"%s\", matches: %v\n", regex, str, m)
+	fmt.printf("regex:\"%s\", str:\"%s\", matches: %v\n", regex, str, m)
 
 	// sb := strings.builder_make()
 	// print_ast(&expr, &sb)
