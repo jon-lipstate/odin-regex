@@ -1,6 +1,8 @@
 package regex
 //
 import "core:fmt"
+import ba "core:container/bit_array"
+import bax "./ba"
 import "./set"
 Set :: set.Set
 //
@@ -365,17 +367,18 @@ match_transition :: proc(m: MatchKind, input: rune) -> bool {
 
 match :: proc(nfa: ^NFA, input: string) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	// TODO: these could be replaced with `core:container/bit_array` for better performance on
-	// sparse sets of states.
-	states_a := make([]bool, len(nfa.transitions))
-	defer delete(states_a)
-	states_b := make([]bool, len(nfa.transitions))
-	defer delete(states_b)
+	@static states_a, states_b: ba.Bit_Array
+	// states_a := ba.create(len(nfa.transitions))
+	bax.reserve_unchecked(&states_a, len(nfa.transitions))
+	defer ba.clear(&states_a)
+	// states_b := ba.create(len(nfa.transitions))
+	bax.reserve_unchecked(&states_b, len(nfa.transitions))
+	defer ba.clear(&states_b)
 
-	current_states := states_a
-	next_states := states_b
+	current_states := &states_a
+	next_states    := &states_b
 
-	update_active_states :: proc(nfa: ^NFA, active_states: []bool, state: int, r: rune) #no_bounds_check {
+	update_active_states :: proc(nfa: ^NFA, active_states: ^ba.Bit_Array, state: int) #no_bounds_check {
 		TRACE(&spall_ctx, &spall_buffer, #procedure)
 
 		@static stack: [dynamic]int
@@ -384,11 +387,12 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 
 		for len(stack) > 0 {
 			state := pop(&stack)
-			if active_states[state] { continue }
-			active_states[state] = true
+			if bax.get_unchecked(active_states, state) {continue}
+			ba.set(active_states, state)
 			for t in nfa.transitions[state] {
-				if !active_states[t.to] && match_transition(t.match, r) {
-					active_states[t.to] = true
+				if bax.get_unchecked(active_states, t.to) {continue}
+				if match_transition(t.match, 0) {
+					bax.set_unchecked(active_states, t.to)
 					append(&stack, t.to)
 				}
 			}
@@ -396,16 +400,18 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 	}
 
 	strlen := len(input)
-	update_active_states(nfa, current_states, nfa.start, 0)
+	update_active_states(nfa, current_states, nfa.start)
 	// Iterate through input characters
 	for r, i in input {
-		for b in &next_states {b = false}
-		for is_active, state in current_states {
-			if !is_active {continue}
+		ba.clear(next_states)
+		it := ba.make_iterator(current_states)
+		for state in ba.iterate_by_set(&it) {
 			for t in nfa.transitions[state] {
+				if bax.get_unchecked(next_states, t.to) {continue}
 				if match_transition(t.match, r) {
-					update_active_states(nfa, next_states, t.to, r)
-					next_states[t.to] = true
+					update_active_states(nfa, next_states, t.to)
+					bax.set_unchecked(next_states, t.to)
+					// next_states[t.to] = true
 				}
 			}
 		}
@@ -415,7 +421,8 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 	// fmt.println("current_states", current_states.m)
 	// fmt.println("next_states", next_states.m)
 	// Check if the final state is active
-	for is_active, state in current_states {if is_active && state == nfa.end {return true}}
+	it := ba.make_iterator(current_states)
+	for state in ba.iterate_by_set(&it) {if state == nfa.end {return true}}
 	return false
 }
 
