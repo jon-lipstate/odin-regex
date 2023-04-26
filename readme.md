@@ -1,6 +1,12 @@
 ## Regex Implementation
 
-It turns out that using a map to be/hold states results in poor performance. The codebase is (relatively) small and concise, while reaching towards many of the features of PCRE, however, at present it runs 100x slower. I intend to pivot to a different implementation. This one is kept for posterity.
+Prototype - matches full string only at present
+
+todo:
+ - [ ] capturing groups
+ - [ ] anchors
+ - [ ] partial matches
+ - [ ] performance
 
 ## Grammar
 
