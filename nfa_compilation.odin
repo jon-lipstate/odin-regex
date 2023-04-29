@@ -12,14 +12,19 @@ Automata :: struct {
 	end:   int,
 }
 NFA :: struct {
-	transitions: [dynamic]Transitions,
-	start:       int,
-	end:         int,
+	transitions:   [dynamic]Transitions,
+	start:         int,
+	end:           int,
+	//unimplemented features:
+	fold_case:     bool,
+	next_group_id: int, // used to produce group ids; zero is reserved for not-a-group
 }
 Transitions :: [dynamic]Transition
 Transition :: struct {
 	to:    int,
 	match: MatchKind,
+	// Experiment - add int field to track groups for matching:
+	group: int, // 0: not a group, -i:start, i:end
 }
 Epsilon :: struct {}
 ɛ :: Epsilon{} // const
@@ -34,9 +39,10 @@ make_nfa :: proc(allocator := context.allocator) -> NFA {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	context.allocator = allocator
 	nfa := NFA {
-		transitions = make([dynamic]Transitions),
-		start       = -1,
-		end         = -1,
+		transitions   = make([dynamic]Transitions),
+		start         = -1,
+		end           = -1,
+		next_group_id = 1,
 	}
 	return nfa
 }
@@ -312,194 +318,9 @@ compile_charset :: proc(nfa: ^NFA, charset: Charset, start: int) -> (end: int) {
 	return
 }
 
-add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind) {
+add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind, group: int = 0) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	transition := Transition{to, match}
+	transition := Transition{to, match, group}
 	for t in nfa.transitions[from] {if t == transition {return}}
 	append(&nfa.transitions[from], transition)
 }
-// TODO (jon): NO RUNES - ONLY u8??
-match_transition :: proc(m: MatchKind, input: rune) -> bool {
-	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	result := false
-	switch value in m {
-	case Epsilon:
-		result = true
-	case rune:
-		result = input == value
-	case ^Bit_Array:
-		assert(input < 256)
-		result = test_bit_unchecked(value, int(input))
-	case Anchor_Start:
-		unimplemented()
-	case Anchor_End:
-		unimplemented()
-	}
-	return result
-}
-
-match :: proc(nfa: ^NFA, input: string) -> bool {
-	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	@(static)
-	states_a, states_b: ba.Bit_Array
-	reserve_unchecked(&states_a, len(nfa.transitions))
-	defer ba.clear(&states_a)
-	reserve_unchecked(&states_b, len(nfa.transitions))
-	defer ba.clear(&states_b)
-
-	current_states := &states_a
-	next_states := &states_b
-
-	update_active_states :: proc(nfa: ^NFA, active_states: ^Bit_Array, state: int) #no_bounds_check {
-		TRACE(&spall_ctx, &spall_buffer, #procedure)
-		@(static)
-		stack: [dynamic]int
-		append(&stack, state)
-		defer clear(&stack)
-
-		for len(stack) > 0 {
-			state := pop(&stack)
-			if test_bit_unchecked(active_states, state) {continue}
-			ba.set(active_states, state)
-			for t in nfa.transitions[state] {
-				if test_bit_unchecked(active_states, t.to) {continue}
-				if match_transition(t.match, 0) {
-					set_bit_unchecked(active_states, t.to)
-					append(&stack, t.to)
-				}
-			}
-		}
-	}
-
-	strlen := len(input)
-	update_active_states(nfa, current_states, nfa.start)
-	// Iterate through input characters
-	for r, i in input {
-		ba.clear(next_states)
-		it := ba.make_iterator(current_states)
-		for state in ba.iterate_by_set(&it) {
-			for t in nfa.transitions[state] {
-				if test_bit_unchecked(next_states, t.to) {continue}
-				if match_transition(t.match, r) {
-					update_active_states(nfa, next_states, t.to)
-					set_bit_unchecked(next_states, t.to)
-				}
-			}
-		}
-		// swap pointers:
-		current_states, next_states = next_states, current_states
-	}
-	// fmt.println("current_states", current_states.m)
-	// fmt.println("next_states", next_states.m)
-	// Check if the final state is active
-	it := ba.make_iterator(current_states)
-	for state in ba.iterate_by_set(&it) {if state == nfa.end {return true}}
-	return false
-}
-
-epsilon_closure :: proc(nfa: ^NFA, start: int) -> [dynamic]int {
-	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	closure := make([dynamic]int)
-
-	stack := [dynamic]int{start}
-	defer delete(stack)
-
-	seen := make([]bool, len(nfa.transitions))
-	seen[start] = true
-	defer delete(seen)
-
-	for len(stack) > 0 {
-		state := pop(&stack)
-		append(&closure, state)
-		for t in &nfa.transitions[state] {
-			if !seen[t.to] && match_transition(t.match, 0) {
-				seen[t.to] = true
-				append(&stack, t.to)
-			}
-		}
-	}
-	return closure
-}
-
-// reachable :: proc(transitions: [dynamic]Transitions, start: int) -> [dynamic]int {
-// 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-// 	closure := make([dynamic]int)
-
-// 	stack := [dynamic]int{start}
-// 	defer delete(stack)
-
-// 	seen := make([]bool, len(transitions))
-// 	seen[start] = true
-// 	defer delete(seen)
-
-// 	for len(stack) > 0 {
-// 		state := pop(&stack)
-// 		append(&closure, state)
-// 		for t in transitions[state] {
-// 			if !seen[t.to] {
-// 				seen[t.to] = true
-// 				append(&stack, t.to)
-// 			}
-// 		}
-// 	}
-
-// 	return closure
-// }
-// eliminate_epsilons :: proc(nfa: ^NFA) {
-// 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-// 	new_transitions := make([dynamic]Transitions, len(nfa.transitions))
-// 	for transitions, state in &nfa.transitions {
-// 		if len(transitions) == 0 {continue}
-// 		new_transitions[state] = make([dynamic]Transition, 0, len(transitions))
-// 		closure := epsilon_closure(nfa, state)
-// 		defer delete(closure)
-// 		final_state_in_closure := len(closure) > 0 ? closure[len(closure) - 1] == nfa.end : false
-// 		for next_state in closure {
-// 			for t in nfa.transitions[next_state] {
-// 				if !match_transition(t.match, 0) {
-// 					append(&new_transitions[state], t)
-// 				} else if final_state_in_closure {
-// 					@(static)
-// 					once := false
-// 					if !once {
-// 						append(&new_transitions[state], Transition{to = nfa.end, match = ɛ})
-// 						once = true
-// 					}
-// 				}
-// 			}
-// 		}
-// 	}
-// 	// Copy over the clean paths:
-// 	for v in &nfa.transitions {delete(v)}
-// 	clear(&nfa.transitions)
-// 	reach := reachable(new_transitions, nfa.start);defer delete(reach)
-// 	for r in reach {nfa.transitions[r] = new_transitions[r]}
-// 	delete(new_transitions)
-// }
-
-// // delete//??
-// clone_fragment :: proc(nfa: ^NFA, start: int, end: int) -> (cloned_start, cloned_end: int) {
-// 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-// 	state_mapping := make(map[int]int);defer delete(state_mapping)
-// 	cloned_start = add_state(nfa)
-// 	state_mapping[start] = cloned_start
-
-// 	// Clone states
-// 	reachable_states := move_to_end(nfa, start, end);defer set.destroy(&reachable_states)
-// 	assert(set.contains(&reachable_states, end), "clone_fragment: start not connected to end")
-// 	// Add cloned states to the state_mapping
-// 	for state in reachable_states.m {
-// 		if state == start {continue}
-// 		state_mapping[state] = add_state(nfa)
-// 	}
-// 	// Clone transitions
-// 	for state, cloned in state_mapping {
-// 		state_transitions := nfa.transitions[state]
-// 		for transition in state_transitions {
-// 			new_to := state_mapping[transition.to]
-// 			add_transition(nfa, cloned, new_to, transition.match)
-// 		}
-// 	}
-// 	cloned_end = state_mapping[end]
-// 	return
-// }

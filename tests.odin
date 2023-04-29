@@ -1,5 +1,6 @@
 package regex
 import "core:fmt"
+import "core:testing"
 import "core:strings"
 import "core:strconv"
 import "core:intrinsics"
@@ -10,7 +11,7 @@ spall_ctx: spall.Context
 spall_buffer: spall.Buffer
 
 ENABLE_SPALL :: #config(ENABLE_SPALL, false)
-
+freq: u64 = 3_500_000_000 // Assumed Processor Speed - 3.5 ghz
 when ENABLE_SPALL {
 	TRACE :: spall.SCOPED_EVENT
 } else {
@@ -18,39 +19,28 @@ when ENABLE_SPALL {
 }
 ///
 main :: proc() {
-
 	when ENABLE_SPALL {
 		spall_ctx = spall.context_create("regex.spall")
 		defer spall.context_destroy(&spall_ctx)
 		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
 		spall_buffer = spall.buffer_create(buffer_backing)
 		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+		freq, _ = time.tsc_frequency() // <-- VERY slow call
 	}
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	regex := "([0-9]+)-([0-9]+)-([0-9]+)"
-	// regex := "a|b"
+
+	regex := "a(bc)+"
 	p := init_parser(regex)
 	// AST of Regex Inputs:
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-	// for k, v in nfa.transitions {fmt.println(k, v)}
-	// fmt.printf("start:%v, end:%v\n", nfa.start, nfa.end)
+	for k, v in nfa.transitions {fmt.println(k, v)}
+	fmt.printf("start:%v, end:%v\n", nfa.start, nfa.end)
 
-	str := "650-253-0001"
-
-	// Best of n-match with rdtsc:
-	for i := 0; i < 5; i += 1 {
-		start_tsc := intrinsics.read_cycle_counter()
-		m := match(&nfa, str)
-		clocks := f64(intrinsics.read_cycle_counter() - start_tsc)
-		freq, freq_ok := time.tsc_frequency()
-		fmt.printf("clocks:%.0f cy,freq:%.0f hz\n", clocks, f64(freq))
-		fmt.printf("match: %.0f ns\n", clocks / f64(freq) * f64(1_000_000_000))
-	}
+	str := "abcbc"
 
 	m := match(&nfa, str)
 	fmt.printf("regex:\"%s\", str:\"%s\", matches: %v\n", regex, str, m)
-
 	// sb := strings.builder_make()
 	// print_ast(&expr, &sb)
 	// fmt.println(strings.to_string(sb))
@@ -61,6 +51,24 @@ tests := map[string]string {
 	"0x[0-9a-fA-F_]{2,}"          = "0x2A19_42DD",
 	"(a|b)+c?d*"                  = "abababcdddd", // "cd" false
 	"[a-zA-Z_]\\w*\\s*::\\s*proc" = "foo :: proc",
+}
+@(test)
+test_perf :: proc(t: ^testing.T) {
+	regex := "([0-9]+)-([0-9]+)-([0-9]+)"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	str := "650-253-0001"
+	when false {freq, _ = time.tsc_frequency()} 	// Accurate Freq - its very slow to start, >1s
+	// Best of n-match with rdtsc:
+	for i := 0; i < 10; i += 1 {
+		start_tsc := intrinsics.read_cycle_counter()
+		m := match(&nfa, str)
+		clocks := f64(intrinsics.read_cycle_counter() - start_tsc)
+		// fmt.printf("clocks:%.0f cy,freq:%.0f hz\n", clocks, f64(freq))
+		fmt.printf("match: %.0f ns (%.0f clocks)\n", clocks / f64(freq) * f64(1_000_000_000), clocks)
+		// objective :: <1us - c/odin perf is ~2x in regex, spall is another 2x cost when on
+	}
 }
 
 // Recursively fills a `sb` with the ast
