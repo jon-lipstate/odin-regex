@@ -12,6 +12,7 @@ Automata :: struct {
 	end:   int,
 }
 NFA :: struct {
+	// invariant: all epsilon-transitions are at the beginning of the array.
 	transitions:   [dynamic]Transitions,
 	start:         int,
 	end:           int,
@@ -325,6 +326,9 @@ add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind, group: i
 	for t in transitions {if t == transition {return}}
 	append(transitions, transition)
 
+	// maintain the invariant of having all epsilon-transitions at the beginning.
+	// it's possible to make this faster by finding the target position via binary search,
+	// but for small-ish arrays this is plenty fast.
 	for i := len(transitions) - 1; i > 0 && transitions[i-1].match != (Epsilon{}); i -= 1 {
 		transitions[i-1], transitions[i] = transitions[i], transitions[i-1]
 	}
