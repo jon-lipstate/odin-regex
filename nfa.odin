@@ -2,7 +2,8 @@ package regex
 //
 import "core:fmt"
 import ba "core:container/bit_array"
-import bax "./ba"
+
+// TODO(jon): See if i can remove sets entirely?
 import "./set"
 Set :: set.Set
 //
@@ -25,7 +26,7 @@ Epsilon :: struct {}
 MatchKind :: union {
 	Epsilon,
 	rune,
-	InvertibleRange,
+	^Bit_Array,
 	Anchor_Start,
 	Anchor_End,
 }
@@ -61,16 +62,9 @@ compile_nfa :: proc(ast: Expr, allocator := context.allocator) -> NFA {
 	nfa.end = compile_expr(&nfa, ast, nfa.start)
 	return nfa
 }
-compile_expr :: proc(
-	nfa: ^NFA,
-	expr: Expr,
-	start: int,
-	allocator := context.allocator,
-) -> (
-	end: int,
-) {
+compile_expr :: proc(nfa: ^NFA, expr: Expr, start: int, allocator := context.allocator) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	// // fmt.println("compile_expr", start)
+	// fmt.println("compile_expr", start)
 	context.allocator = allocator
 	assert(len(expr.terms) > 0)
 	if len(expr.terms) == 1 {
@@ -150,20 +144,17 @@ compile_rune :: proc(nfa: ^NFA, r: rune, start: int) -> (end: int) {
 compile_wildcard :: proc(nfa: ^NFA, start: int) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	end = add_state(nfa)
-	range := InvertibleRange{-(1 << 32), 1 << 32, false}
-	add_transition(nfa, start, end, range)
+	mask := ba.create(256)
+	fmt.println("MASK,LEN==4?", len(mask.bits))
+	assert(len(mask.bits) == 4)
+	for i := 0; i < len(mask.bits); i += 1 {
+		mask.bits[i] = ~u64(0)
+	}
+	add_transition(nfa, start, end, mask)
 	return
 }
 
-compile_closure :: proc(
-	nfa: ^NFA,
-	start: int,
-	current_end: int,
-	_min: int,
-	_max: int,
-) -> (
-	end: int,
-) {
+compile_closure :: proc(nfa: ^NFA, start: int, current_end: int, _min: int, _max: int) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	// fmt.printf("compile_closure: (%v,%v),[%v,%v]\n", start, current_end, _min, _max)
 	end = current_end
@@ -201,15 +192,8 @@ repeat_fragment :: proc(nfa: ^NFA, to_clone: Automata, start_at: int) -> (cloned
 	state_mapping[to_clone.start] = start_at
 
 	// Clone states
-	reachable_states := move_to_end(
-		nfa,
-		to_clone.start,
-		to_clone.end,
-	);defer set.destroy(&reachable_states)
-	assert(
-		set.contains(&reachable_states, to_clone.end),
-		"clone_fragment: start not connected to end",
-	)
+	reachable_states := move_to_end(nfa, to_clone.start, to_clone.end);defer set.destroy(&reachable_states)
+	assert(set.contains(&reachable_states, to_clone.end), "clone_fragment: start not connected to end")
 	// Add cloned states to the state_mapping
 	for state in reachable_states.m {
 		if state == to_clone.start {continue}
@@ -260,52 +244,53 @@ move_to_end :: proc(nfa: ^NFA, start: int, end: int) -> Set(int) {
 WHITESPACE := []rune{' ', '\t', '\v', '\n', '\r', '\f'}
 compile_charset :: proc(nfa: ^NFA, charset: Charset, start: int) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	// TODO: this whole procedure is not good for perf, need to rework
-	ranges := make([dynamic]InvertibleRange, 0, len(charset.specifiers));defer delete(ranges)
+	mask := ba.create(256)
 	for specifier in charset.specifiers {
 		switch s in specifier {
 		case Literal:
-			append(&ranges, InvertibleRange{int(s), int(s), charset.caret})
+			if charset.caret {set_bit_range_inverted(mask, Range{int(s), int(s)})} else {set_bit_unchecked(mask, int(s))}
 		case Range:
-			append(&ranges, InvertibleRange{s.min, s.max, charset.caret})
+			if charset.caret {set_bit_range_inverted(mask, s)} else {set_bit_range(mask, s)}
 		case EscapeSequence:
 			switch esc in s {
 			case RegexCommand:
 				switch esc {
 				case .Any_Digit:
-					append(&ranges, InvertibleRange{'0', '9', charset.caret}) // \d
+					//\d
+					if charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
 				case .Not_Digit:
-					append(&ranges, InvertibleRange{'0', '9', !charset.caret}) // \D
+					//\D
+					if !charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
 				case .Any_Whitespace:
-					// TODO: this is dumb, need better method
+					// \s
 					for w in WHITESPACE {
-						append(&ranges, InvertibleRange{int(w), int(w), charset.caret}) // \s
+						if charset.caret {set_bit_range_inverted(mask, Range{int(w), int(w)})} else {set_bit_unchecked(mask, int(w))}
 					}
 				case .Not_Whitespace:
-					// TODO: this is dumb, need better method
+					// \S
 					for w in WHITESPACE {
-						append(&ranges, InvertibleRange{int(w), int(w), !charset.caret}) // \S
+						if !charset.caret {set_bit_range_inverted(mask, Range{int(w), int(w)})} else {set_bit_unchecked(mask, int(w))}
 					}
 				case .Any_Word:
 					// \w
-					append(&ranges, InvertibleRange{int('a'), int('z'), charset.caret})
-					append(&ranges, InvertibleRange{int('A'), int('Z'), charset.caret})
-					append(&ranges, InvertibleRange{int('0'), int('9'), charset.caret})
-					append(&ranges, InvertibleRange{int('_'), int('_'), charset.caret})
+					if charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
+					if charset.caret {set_bit_range_inverted(mask, Range{'a', 'z'})} else {set_bit_range(mask, Range{'a', 'z'})}
+					if charset.caret {set_bit_range_inverted(mask, Range{'A', 'Z'})} else {set_bit_range(mask, Range{'A', 'Z'})}
+					if charset.caret {set_bit_range_inverted(mask, Range{'_', '_'})} else {set_bit_range(mask, Range{'_', '_'})}
 				case .Not_Word:
 					// \W
-					append(&ranges, InvertibleRange{int('a'), int('z'), !charset.caret})
-					append(&ranges, InvertibleRange{int('A'), int('Z'), !charset.caret})
-					append(&ranges, InvertibleRange{int('0'), int('9'), !charset.caret})
-					append(&ranges, InvertibleRange{int('_'), int('_'), !charset.caret})
+					if !charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
+					if !charset.caret {set_bit_range_inverted(mask, Range{'a', 'z'})} else {set_bit_range(mask, Range{'a', 'z'})}
+					if !charset.caret {set_bit_range_inverted(mask, Range{'A', 'Z'})} else {set_bit_range(mask, Range{'A', 'Z'})}
+					if !charset.caret {set_bit_range_inverted(mask, Range{'_', '_'})} else {set_bit_range(mask, Range{'_', '_'})}
 				case .Carriage_Return:
-					append(&ranges, InvertibleRange{int('\r'), int('\r'), charset.caret})
+					if charset.caret {set_bit_range_inverted(mask, Range{'\r', '\r'})} else {set_bit_range(mask, Range{'\r', '\r'})}
 				case .Newline:
-					append(&ranges, InvertibleRange{int('\n'), int('\n'), charset.caret})
+					if charset.caret {set_bit_range_inverted(mask, Range{'\n', '\n'})} else {set_bit_range(mask, Range{'\n', '\n'})}
 				case .Not_Newline:
-					append(&ranges, InvertibleRange{int('\n'), int('\n'), !charset.caret})
+					if !charset.caret {set_bit_range_inverted(mask, Range{'\n', '\n'})} else {set_bit_range(mask, Range{'\n', '\n'})}
 				case .Tab:
-					append(&ranges, InvertibleRange{int('\t'), int('\t'), charset.caret})
+					if charset.caret {set_bit_range_inverted(mask, Range{'\t', '\t'})} else {set_bit_range(mask, Range{'\t', '\t'})}
 				case .Invalid:
 					panic("INVALID REGEX COMMAND")
 				}
@@ -314,37 +299,26 @@ compile_charset :: proc(nfa: ^NFA, charset: Charset, start: int) -> (end: int) {
 			case ControlChar:
 				unimplemented()
 			case OctalCode:
-				append(&ranges, InvertibleRange{int(esc), int(esc), false})
+				if charset.caret {set_bit_range_inverted(mask, Range{int(esc), int(esc)})} else {set_bit_range(mask, Range{int(esc), int(esc)})}
 			case Codepoint:
-				append(&ranges, InvertibleRange{int(esc), int(esc), false})
+				if charset.caret {set_bit_range_inverted(mask, Range{int(esc), int(esc)})} else {set_bit_range(mask, Range{int(esc), int(esc)})}
 			case PropertyEscape:
 				unimplemented()
 			}
 		}
 	}
 	end = add_state(nfa)
-
-	if len(ranges) == 1 {
-		add_transition(nfa, start, end, ranges[0])
-	} else {
-		for rng in ranges {
-			add_transition(nfa, start, end, rng)
-		}
-	}
-
+	add_transition(nfa, start, end, mask)
 	return
 }
 
 add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	transition := Transition{to, match}
-	// if to == 3 && match == ɛ {
-	// 	fmt.println("HI")
-	// }
 	for t in nfa.transitions[from] {if t == transition {return}}
 	append(&nfa.transitions[from], transition)
 }
-
+// TODO (jon): NO RUNES - ONLY u8??
 match_transition :: proc(m: MatchKind, input: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	result := false
@@ -353,9 +327,9 @@ match_transition :: proc(m: MatchKind, input: rune) -> bool {
 		result = true
 	case rune:
 		result = input == value
-	case InvertibleRange:
-		contained := value.min <= int(input) && int(input) <= value.max
-		result = value.invert ? !contained : contained
+	case ^Bit_Array:
+		assert(input < 256)
+		result = test_bit_unchecked(value, int(input))
 	case Anchor_Start:
 		unimplemented()
 	case Anchor_End:
@@ -364,35 +338,33 @@ match_transition :: proc(m: MatchKind, input: rune) -> bool {
 	return result
 }
 
-
 match :: proc(nfa: ^NFA, input: string) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	@static states_a, states_b: ba.Bit_Array
-	// states_a := ba.create(len(nfa.transitions))
-	bax.reserve_unchecked(&states_a, len(nfa.transitions))
+	@(static)
+	states_a, states_b: ba.Bit_Array
+	reserve_unchecked(&states_a, len(nfa.transitions))
 	defer ba.clear(&states_a)
-	// states_b := ba.create(len(nfa.transitions))
-	bax.reserve_unchecked(&states_b, len(nfa.transitions))
+	reserve_unchecked(&states_b, len(nfa.transitions))
 	defer ba.clear(&states_b)
 
 	current_states := &states_a
-	next_states    := &states_b
+	next_states := &states_b
 
-	update_active_states :: proc(nfa: ^NFA, active_states: ^ba.Bit_Array, state: int) #no_bounds_check {
+	update_active_states :: proc(nfa: ^NFA, active_states: ^Bit_Array, state: int) #no_bounds_check {
 		TRACE(&spall_ctx, &spall_buffer, #procedure)
-
-		@static stack: [dynamic]int
+		@(static)
+		stack: [dynamic]int
 		append(&stack, state)
 		defer clear(&stack)
 
 		for len(stack) > 0 {
 			state := pop(&stack)
-			if bax.get_unchecked(active_states, state) {continue}
+			if test_bit_unchecked(active_states, state) {continue}
 			ba.set(active_states, state)
 			for t in nfa.transitions[state] {
-				if bax.get_unchecked(active_states, t.to) {continue}
+				if test_bit_unchecked(active_states, t.to) {continue}
 				if match_transition(t.match, 0) {
-					bax.set_unchecked(active_states, t.to)
+					set_bit_unchecked(active_states, t.to)
 					append(&stack, t.to)
 				}
 			}
@@ -407,11 +379,10 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 		it := ba.make_iterator(current_states)
 		for state in ba.iterate_by_set(&it) {
 			for t in nfa.transitions[state] {
-				if bax.get_unchecked(next_states, t.to) {continue}
+				if test_bit_unchecked(next_states, t.to) {continue}
 				if match_transition(t.match, r) {
 					update_active_states(nfa, next_states, t.to)
-					bax.set_unchecked(next_states, t.to)
-					// next_states[t.to] = true
+					set_bit_unchecked(next_states, t.to)
 				}
 			}
 		}
@@ -447,89 +418,88 @@ epsilon_closure :: proc(nfa: ^NFA, start: int) -> [dynamic]int {
 			}
 		}
 	}
-
 	return closure
 }
-reachable :: proc(transitions: [dynamic]Transitions, start: int) -> [dynamic]int {
-	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	closure := make([dynamic]int)
 
-	stack := [dynamic]int{start}
-	defer delete(stack)
+// reachable :: proc(transitions: [dynamic]Transitions, start: int) -> [dynamic]int {
+// 	TRACE(&spall_ctx, &spall_buffer, #procedure)
+// 	closure := make([dynamic]int)
 
-	seen := make([]bool, len(transitions))
-	seen[start] = true
-	defer delete(seen)
+// 	stack := [dynamic]int{start}
+// 	defer delete(stack)
 
-	for len(stack) > 0 {
-		state := pop(&stack)
-		append(&closure, state)
-		for t in transitions[state] {
-			if !seen[t.to] {
-				seen[t.to] = true
-				append(&stack, t.to)
-			}
-		}
-	}
+// 	seen := make([]bool, len(transitions))
+// 	seen[start] = true
+// 	defer delete(seen)
 
-	return closure
-}
-eliminate_epsilons :: proc(nfa: ^NFA) {
-	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	new_transitions := make([dynamic]Transitions, len(nfa.transitions))
-	for transitions, state in &nfa.transitions {
-		if len(transitions) == 0 { continue }
-		new_transitions[state] = make([dynamic]Transition, 0, len(transitions))
-		closure := epsilon_closure(nfa, state)
-		defer delete(closure)
-		final_state_in_closure := len(closure) > 0 ? closure[len(closure) - 1] == nfa.end : false
-		for next_state in closure {
-			for t in nfa.transitions[next_state] {
-				if !match_transition(t.match, 0) {
-					append(&new_transitions[state], t)
-				} else if final_state_in_closure {
-					@(static)
-					once := false
-					if !once {
-						append(&new_transitions[state], Transition{to = nfa.end, match = ɛ})
-						once = true
-					}
-				}
-			}
-		}
-	}
-	// Copy over the clean paths:
-	for v in &nfa.transitions {delete(v)}
-	clear(&nfa.transitions)
-	reach := reachable(new_transitions, nfa.start);defer delete(reach)
-	for r in reach {nfa.transitions[r] = new_transitions[r]}
-	delete(new_transitions)
-}
+// 	for len(stack) > 0 {
+// 		state := pop(&stack)
+// 		append(&closure, state)
+// 		for t in transitions[state] {
+// 			if !seen[t.to] {
+// 				seen[t.to] = true
+// 				append(&stack, t.to)
+// 			}
+// 		}
+// 	}
 
+// 	return closure
+// }
+// eliminate_epsilons :: proc(nfa: ^NFA) {
+// 	TRACE(&spall_ctx, &spall_buffer, #procedure)
+// 	new_transitions := make([dynamic]Transitions, len(nfa.transitions))
+// 	for transitions, state in &nfa.transitions {
+// 		if len(transitions) == 0 {continue}
+// 		new_transitions[state] = make([dynamic]Transition, 0, len(transitions))
+// 		closure := epsilon_closure(nfa, state)
+// 		defer delete(closure)
+// 		final_state_in_closure := len(closure) > 0 ? closure[len(closure) - 1] == nfa.end : false
+// 		for next_state in closure {
+// 			for t in nfa.transitions[next_state] {
+// 				if !match_transition(t.match, 0) {
+// 					append(&new_transitions[state], t)
+// 				} else if final_state_in_closure {
+// 					@(static)
+// 					once := false
+// 					if !once {
+// 						append(&new_transitions[state], Transition{to = nfa.end, match = ɛ})
+// 						once = true
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}
+// 	// Copy over the clean paths:
+// 	for v in &nfa.transitions {delete(v)}
+// 	clear(&nfa.transitions)
+// 	reach := reachable(new_transitions, nfa.start);defer delete(reach)
+// 	for r in reach {nfa.transitions[r] = new_transitions[r]}
+// 	delete(new_transitions)
+// }
 
-// delete//??
-clone_fragment :: proc(nfa: ^NFA, start: int, end: int) -> (cloned_start, cloned_end: int) {
-	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	state_mapping := make(map[int]int);defer delete(state_mapping)
-	cloned_start = add_state(nfa)
-	state_mapping[start] = cloned_start
+// // delete//??
+// clone_fragment :: proc(nfa: ^NFA, start: int, end: int) -> (cloned_start, cloned_end: int) {
+// 	TRACE(&spall_ctx, &spall_buffer, #procedure)
+// 	state_mapping := make(map[int]int);defer delete(state_mapping)
+// 	cloned_start = add_state(nfa)
+// 	state_mapping[start] = cloned_start
 
-	// Clone states
-	reachable_states := move_to_end(nfa, start, end);defer set.destroy(&reachable_states)
-	assert(set.contains(&reachable_states, end), "clone_fragment: start not connected to end")
-	// Add cloned states to the state_mapping
-	for state in reachable_states.m {
-		if state == start {continue}
-		state_mapping[state] = add_state(nfa)
-	}
-	// Clone transitions
-	for state, cloned in state_mapping {
-		state_transitions := nfa.transitions[state]
-		for transition in state_transitions {
-			new_to := state_mapping[transition.to]
-			add_transition(nfa, cloned, new_to, transition.match)
-		}
-	}
-	cloned_end = state_mapping[end]
-	return
-}
+// 	// Clone states
+// 	reachable_states := move_to_end(nfa, start, end);defer set.destroy(&reachable_states)
+// 	assert(set.contains(&reachable_states, end), "clone_fragment: start not connected to end")
+// 	// Add cloned states to the state_mapping
+// 	for state in reachable_states.m {
+// 		if state == start {continue}
+// 		state_mapping[state] = add_state(nfa)
+// 	}
+// 	// Clone transitions
+// 	for state, cloned in state_mapping {
+// 		state_transitions := nfa.transitions[state]
+// 		for transition in state_transitions {
+// 			new_to := state_mapping[transition.to]
+// 			add_transition(nfa, cloned, new_to, transition.match)
+// 		}
+// 	}
+// 	cloned_end = state_mapping[end]
+// 	return
+// }

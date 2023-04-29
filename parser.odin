@@ -66,13 +66,7 @@ parse_expr :: proc(p: ^Parser, allocator := context.allocator) -> (expr: Expr, e
 	}
 	return
 }
-parse_term :: proc(
-	p: ^Parser,
-	allocator := context.allocator,
-) -> (
-	term: Term,
-	err: Parse_Error = .Ok,
-) {
+parse_term :: proc(p: ^Parser, allocator := context.allocator) -> (term: Term, err: Parse_Error = .Ok) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	// fmt.println("parse_term")
 	term = Term{make([dynamic]Factor)}
@@ -258,13 +252,7 @@ is_anchor :: proc(ch: u8) -> bool {
 // is_word :: proc(ch: u8) -> bool {
 // 	return (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
 // }
-parse_charset :: proc(
-	p: ^Parser,
-	allocator := context.allocator,
-) -> (
-	charset: Charset,
-	err: Parse_Error,
-) {
+parse_charset :: proc(p: ^Parser, allocator := context.allocator) -> (charset: Charset, err: Parse_Error) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	ch, eof := peek(p)
 	// fmt.println("parse_charset", rune(ch))
@@ -500,13 +488,7 @@ parse_regex_command :: proc(ch: u8) -> RegexCommand {
 		return .Invalid
 	}
 }
-parse_group :: proc(
-	p: ^Parser,
-	allocator := context.allocator,
-) -> (
-	group: Group,
-	err: Parse_Error,
-) {
+parse_group :: proc(p: ^Parser, allocator := context.allocator) -> (group: Group, err: Parse_Error) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	ch, eof := peek(p)
 	// fmt.println("parse_group", rune(ch))
@@ -588,11 +570,6 @@ ANCHOR_END :: Anchor_End{}
 Quantifier :: struct {
 	using range: Range,
 	nongreedy:   bool,
-}
-InvertibleRange :: struct {
-	min:    int,
-	max:    int,
-	invert: bool,
 }
 Range :: struct {
 	min: int,
