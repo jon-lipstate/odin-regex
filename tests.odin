@@ -34,7 +34,7 @@ main :: proc() {
 	// AST of Regex Inputs:
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-	for k, v in nfa.transitions {fmt.println(k, v)}
+	for t, i in nfa.transitions {fmt.printf("State: %v, %v\n", i, t)}
 	fmt.printf("start:%v, end:%v\n", nfa.start, nfa.end)
 
 	str := "abcbc"

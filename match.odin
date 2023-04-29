@@ -55,6 +55,7 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 			}
 		}
 	}
+	group_stacks: [dynamic]Pair(int)
 
 	strlen := len(input)
 	update_active_states(nfa, current_states, nfa.start)
@@ -68,6 +69,16 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 				if match_transition(t.match, r) {
 					update_active_states(nfa, next_states, t.to)
 					set_bit_unchecked(next_states, t.to)
+					if t.group != 0 {
+						if t.group < 0 {
+							append(&group_stacks, Pair(int){abs(t.group), i})
+							fmt.println("add to grp-stack", t.group, i)
+						} else {
+							grp := pop(&group_stacks)
+							assert(grp.b == t.group)
+							fmt.printf("Group %v [%v:%v], (%v)\n", t.group, grp.b, i + 1, input[grp.b:i + 1])
+						}
+					}
 				}
 			}
 		}

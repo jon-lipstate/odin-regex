@@ -7,6 +7,9 @@ import ba "core:container/bit_array"
 import "./set"
 Set :: set.Set
 //
+Pair :: struct(T: typeid) {
+	a, b: T,
+}
 Automata :: struct {
 	start: int,
 	end:   int,
@@ -68,7 +71,7 @@ compile_nfa :: proc(ast: Expr, allocator := context.allocator) -> NFA {
 	nfa.end = compile_expr(&nfa, ast, nfa.start)
 	return nfa
 }
-compile_expr :: proc(nfa: ^NFA, expr: Expr, start: int, allocator := context.allocator) -> (end: int) {
+compile_expr :: proc(nfa: ^NFA, expr: Expr, start: int, is_group := false, allocator := context.allocator) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	// fmt.println("compile_expr", start)
 	context.allocator = allocator
@@ -122,6 +125,18 @@ compile_factor :: proc(nfa: ^NFA, factor: Factor, start: int) -> (end: int) {
 			end = compile_rune(nfa, atom, start)
 		case (Group):
 			end = compile_expr(nfa, Expr(atom), start)
+			for t in &nfa.transitions[start] {
+				t.group = -1 * nfa.next_group_id
+			}
+			// We want transitions going into our end state to close the group:
+			for trans, s in &nfa.transitions {
+				for t in &trans {
+					if t.to == end {
+						t.group = 1 * nfa.next_group_id
+					}
+				}
+			}
+			nfa.next_group_id += 1
 		case (Charset):
 			end = compile_charset(nfa, atom, start)
 		case (Wildcard):
