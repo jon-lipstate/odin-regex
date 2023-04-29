@@ -321,6 +321,11 @@ compile_charset :: proc(nfa: ^NFA, charset: Charset, start: int) -> (end: int) {
 add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind, group: int = 0) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	transition := Transition{to, match, group}
-	for t in nfa.transitions[from] {if t == transition {return}}
-	append(&nfa.transitions[from], transition)
+	transitions := &nfa.transitions[from]
+	for t in transitions {if t == transition {return}}
+	append(transitions, transition)
+
+	for i := len(transitions) - 1; i > 0 && transitions[i-1].match != (Epsilon{}); i -= 1 {
+		transitions[i-1], transitions[i] = transitions[i], transitions[i-1]
+	}
 }

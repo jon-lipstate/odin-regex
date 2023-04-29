@@ -9,7 +9,7 @@ match_transition :: proc(m: MatchKind, input: rune) -> bool {
 	result := false
 	switch value in m {
 	case Epsilon:
-		result = true
+		result = input == 0
 	case rune:
 		result = input == value
 	case ^Bit_Array:
@@ -47,8 +47,8 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 			if test_bit_unchecked(active_states, state) {continue}
 			ba.set(active_states, state)
 			for t in nfa.transitions[state] {
-				if test_bit_unchecked(active_states, t.to) {continue}
-				if match_transition(t.match, 0) {
+				if t.match != (Epsilon{}) { break }
+				if !test_bit_unchecked(active_states, t.to) {
 					set_bit_unchecked(active_states, t.to)
 					append(&stack, t.to)
 				}
