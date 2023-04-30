@@ -1,5 +1,7 @@
 package regex
 import ba "core:container/bit_array"
+import "core:fmt"
+//
 Bit_Array :: ba.Bit_Array
 set_bit_unchecked :: #force_inline proc(b: ^Bit_Array, bit: int) #no_bounds_check {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
@@ -26,6 +28,7 @@ set_bit_range_inverted :: #force_inline proc(b: ^Bit_Array, r: Range) #no_bounds
 }
 test_bit_unchecked :: #force_inline proc(b: ^Bit_Array, index: int) -> bool #no_bounds_check {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
+	// fmt.printf("test_bit i:%v,sr:%v,val:%v\n", index >> 6, uint(index & 63), (b.bits[index >> 6] >> uint(index & 63)))
 	return bool((b.bits[index >> 6] >> uint(index & 63)) & 1)
 }
 reserve_unchecked :: proc(ba: ^Bit_Array, size: int) {

@@ -34,14 +34,23 @@ main :: proc() {
 	// AST of Regex Inputs:
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	nfa.global = true
 	for t, i in nfa.transitions {fmt.printf("State: %v, %v\n", i, t)}
 	fmt.printf("start:%v, end:%v\n", nfa.start, nfa.end)
 
-	str := "abcbc"
+	str := "abc abcbc"
+	// str := "abc"
 
 	matches, found_any := match(&nfa, str)
 	fmt.printf("regex:\"%s\", str:\"%s\", matches: %v\n", regex, str, found_any)
-	fmt.println(matches)
+	for m, i in matches {
+		fmt.printf("Match %v: %v\n", i + 1, str[m.begin:m.end])
+		for g, j in m.groups {
+			if g.end != -1 {
+				fmt.printf(" Group %v: %v\n", j + 1, str[g.begin:g.end])
+			}
+		}
+	}
 	// sb := strings.builder_make()
 	// print_ast(&expr, &sb)
 	// fmt.println(strings.to_string(sb))
@@ -65,10 +74,12 @@ test_perf :: proc(t: ^testing.T) {
 	when false {freq, _ = time.tsc_frequency()} 	// Accurate Freq - its very slow to start, >1s
 	results := [dynamic]f64{};defer delete(results)
 	n_runs := 100
+	matches: [dynamic]Match
+	found_any: bool
 	// Best of n-match with rdtsc:
 	for i := 0; i < n_runs; i += 1 {
 		start_tsc := intrinsics.read_cycle_counter()
-		m, found_any := match(&nfa, str)
+		matches, found_any = match(&nfa, str)
 		clocks := f64(intrinsics.read_cycle_counter() - start_tsc)
 		append(&results, clocks)
 	}
@@ -85,95 +96,96 @@ test_perf :: proc(t: ^testing.T) {
 	// objective :: <1us - c/odin perf is ~2x in regex, spall is another 2x cost when on
 }
 
-// @(test)
-// test_optional :: proc(t: ^testing.T) {
-// 	regex := "a?"
-// 	p := init_parser(regex)
-// 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
-// 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-// 	{
-// 		str := "b"
-// 		m := match(&nfa, str)
-// 		assert(m == false, "b matched a?")
-// 	};{
-// 		str := "a"
-// 		m := match(&nfa, str)
-// 		assert(m == true, "a did not match a?")
-// 	};{
-// 		str := ""
-// 		m := match(&nfa, str)
-// 		assert(m == true, "'' did not match `a?`")
-// 	}
-// }
-// @(test)
-// test_asterisk :: proc(t: ^testing.T) {
-// 	regex := "a*"
-// 	p := init_parser(regex)
-// 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
-// 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-// 	{
-// 		str := "b"
-// 		m := match(&nfa, str)
-// 		assert(m == false, "b matched a*")
-// 	};{
-// 		str := ""
-// 		m := match(&nfa, str)
-// 		assert(m == true, "'' did not match `a*`")
-// 	};{
-// 		str := "a"
-// 		m := match(&nfa, str)
-// 		assert(m == true, "a did not match a*")
-// 	};{
-// 		str := "aaa"
-// 		m := match(&nfa, str)
-// 		assert(m == true, "aaa did not match a*")
-// 	}
-// }
-// @(test)
-// test_plus :: proc(t: ^testing.T) {
-// 	regex := "a+"
-// 	p := init_parser(regex)
-// 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
-// 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-// 	{
-// 		str := "b"
-// 		m := match(&nfa, str)
-// 		assert(m == false, "b matched a+")
-// 	};{
-// 		str := ""
-// 		m := match(&nfa, str)
-// 		assert(m == false, "'' matched `a+`")
-// 	};{
-// 		str := "a"
-// 		m := match(&nfa, str)
-// 		assert(m == true, "a did not match a+")
-// 	};{
-// 		str := "aaa"
-// 		m := match(&nfa, str)
-// 		assert(m == true, "aaa did not match a+")
-// 	}
-// }
-// @(test)
-// test_alt :: proc(t: ^testing.T) {
-// 	regex := "a|b"
-// 	p := init_parser(regex)
-// 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
-// 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-// 	{
-// 		str := ""
-// 		m := match(&nfa, str)
-// 		assert(m == false, "'' matched a|b")
-// 	};{
-// 		str := "a"
-// 		m := match(&nfa, str)
-// 		assert(m == true, "a did not match a|b")
-// 	};{
-// 		str := "b"
-// 		m := match(&nfa, str)
-// 		assert(m == true, "b did not match a|b")
-// 	};{
-// 		str := "c"
-// 		m := match(&nfa, str)
-// 		assert(m == false, "c matched a|b")
-// 	}
-// }
+@(test)
+test_optional :: proc(t: ^testing.T) {
+	regex := "a?"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	{
+		str := "b"
+		m, found_any := match(&nfa, str)
+		assert(found_any == false, "b matched a?")
+	};{
+		str := "a"
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "a did not match a?")
+	};{
+		str := ""
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "'' did not match `a?`")
+	}
+}
+@(test)
+test_asterisk :: proc(t: ^testing.T) {
+	regex := "a*"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	{
+		str := "b"
+		m, found_any := match(&nfa, str)
+		assert(found_any == false, "b matched a*")
+	};{
+		str := ""
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "'' did not match `a*`")
+	};{
+		str := "a"
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "a did not match a*")
+	};{
+		str := "aaa"
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "aaa did not match a*")
+	}
+}
+@(test)
+test_plus :: proc(t: ^testing.T) {
+	regex := "a+"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	{
+		str := "b"
+		m, found_any := match(&nfa, str)
+		assert(found_any == false, "b matched a+")
+	};{
+		str := ""
+		m, found_any := match(&nfa, str)
+		assert(found_any == false, "'' matched `a+`")
+	};{
+		str := "a"
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "a did not match a+")
+	};{
+		str := "aaa"
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "aaa did not match a+")
+	}
+}
+@(test)
+test_alt :: proc(t: ^testing.T) {
+	regex := "a|b"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
+	{
+		str := ""
+		m, found_any := match(&nfa, str)
+		assert(found_any == false, "'' matched a|b")
+	};{
+		str := "a"
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "a did not match a|b")
+	};{
+		str := "b"
+		m, found_any := match(&nfa, str)
+		assert(found_any == true, "b did not match a|b")
+	};{
+		str := "c"
+		m, found_any := match(&nfa, str)
+		assert(found_any == false, "c matched a|b")
+	}
+}

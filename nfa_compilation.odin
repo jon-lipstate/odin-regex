@@ -19,16 +19,17 @@ NFA :: struct {
 	transitions:   [dynamic]Transitions,
 	start:         int,
 	end:           int,
+	// regexy-features:
+	next_group_id: int, // used to produce group ids; zero is reserved for not-a-group
+	global:        bool,
 	//unimplemented features:
 	fold_case:     bool,
-	next_group_id: int, // used to produce group ids; zero is reserved for not-a-group
 }
 Transitions :: [dynamic]Transition
 Transition :: struct {
 	to:    int,
-	match: MatchKind,
-	// Experiment - add int field to track groups for matching:
 	group: int, // 0: not a group, -i:start, i:end
+	match: MatchKind,
 }
 Epsilon :: struct {}
 ɛ :: Epsilon{} // const
@@ -72,7 +73,7 @@ compile_nfa :: proc(ast: Expr, allocator := context.allocator) -> NFA {
 	nfa.end = compile_expr(&nfa, ast, nfa.start)
 	return nfa
 }
-compile_expr :: proc(nfa: ^NFA, expr: Expr, start: int, is_group := false, allocator := context.allocator) -> (end: int) {
+compile_expr :: proc(nfa: ^NFA, expr: Expr, start: int, allocator := context.allocator) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	// fmt.println("compile_expr", start)
 	context.allocator = allocator
@@ -126,17 +127,25 @@ compile_factor :: proc(nfa: ^NFA, factor: Factor, start: int) -> (end: int) {
 			end = compile_rune(nfa, atom, start)
 		case (GroupExpr):
 			end = compile_expr(nfa, Expr(atom), start)
-			for t in &nfa.transitions[start] {
-				t.group = -1 * nfa.next_group_id
-			}
+			// fmt.println("GroupExpr", start, end)
+			// for t in &nfa.transitions[start] {
+			// 	t.group = -1 * nfa.next_group_id
+			// 	// fmt.println("start-t", t)
+			// }
+			// for t in &nfa.transitions[end] {
+			// 	t.group = 1 * nfa.next_group_id
+			// 	// fmt.println("end-t", t)
+			// }
 			// We want transitions going into our end state to close the group:
-			for trans, s in &nfa.transitions {
-				for t in &trans {
-					if t.to == end {
-						t.group = 1 * nfa.next_group_id
-					}
-				}
-			}
+			// NOTE: This didnt work out - phone test is repro
+			// for trans, s in &nfa.transitions {
+			// 	for t in &trans {
+			// 		if t.to == end && t.to != start {
+			// 			t.group = 1 * nfa.next_group_id
+			// 			fmt.println("end-t", t)
+			// 		}
+			// 	}
+			// }
 			nfa.next_group_id += 1
 		case (Charset):
 			end = compile_charset(nfa, atom, start)
@@ -336,15 +345,15 @@ compile_charset :: proc(nfa: ^NFA, charset: Charset, start: int) -> (end: int) {
 
 add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind, group: int = 0) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	transition := Transition{to, match, group}
+	transition := Transition{to, group, match}
 	transitions := &nfa.transitions[from]
 	for t in transitions {if t == transition {return}}
 	append(transitions, transition)
 
-	// maintain the invariant of having all epsilon-transitions at the beginning.
+	// Maintain the invariant of having all ɛ-transitions at the beginning.
 	// it's possible to make this faster by finding the target position via binary search,
 	// but for small-ish arrays this is plenty fast.
-	for i := len(transitions) - 1; i > 0 && transitions[i - 1].match != (Epsilon{}); i -= 1 {
+	for i := len(transitions) - 1; i > 0 && transitions[i - 1].match != ɛ; i -= 1 {
 		transitions[i - 1], transitions[i] = transitions[i], transitions[i - 1]
 	}
 }

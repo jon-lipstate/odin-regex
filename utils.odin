@@ -2,6 +2,17 @@ package regex
 import "core:strings"
 import "core:fmt"
 
+print_nfa :: proc(nfa: ^NFA) {
+	for tran, i in nfa.transitions {
+		fmt.printf("State: %v, [", i)
+		for t in tran {
+			fmt.printf("(to = %v, grp = %v, match = %v), ", t.to, t.group, t.match == ɛ ? "Epsilon" : "Mask")
+		}
+		fmt.printf("]\n")
+	}
+	fmt.printf("start:%v, end:%v\n", nfa.start, nfa.end)
+}
+
 // Recursively fills a `sb` with the ast
 print_ast :: proc(expr: ^Expr, sb: ^strings.Builder, depth := 0) {
 	depth := depth
