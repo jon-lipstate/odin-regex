@@ -52,121 +52,127 @@ tests := map[string]string {
 	"(a|b)+c?d*"                  = "abababcdddd", // "cd" false
 	"[a-zA-Z_]\\w*\\s*::\\s*proc" = "foo :: proc",
 }
+import "core:slice"
 @(test)
 test_perf :: proc(t: ^testing.T) {
+	// NOTE: Should run this test with: `odin test . -o:speed -disable-assert -no-bounds-check`
 	regex := "([0-9]+)-([0-9]+)-([0-9]+)"
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
 	str := "650-253-0001"
 	when false {freq, _ = time.tsc_frequency()} 	// Accurate Freq - its very slow to start, >1s
+	results := [dynamic]f64{};defer delete(results)
+	n_runs := 100
 	// Best of n-match with rdtsc:
-	for i := 0; i < 10; i += 1 {
+	for i := 0; i < n_runs; i += 1 {
 		start_tsc := intrinsics.read_cycle_counter()
 		m := match(&nfa, str)
 		clocks := f64(intrinsics.read_cycle_counter() - start_tsc)
-		// fmt.printf("clocks:%.0f cy,freq:%.0f hz\n", clocks, f64(freq))
-		fmt.printf("match: %.0f ns (%.0f clocks)\n", clocks / f64(freq) * f64(1_000_000_000), clocks)
-		// objective :: <1us - c/odin perf is ~2x in regex, spall is another 2x cost when on
+		append(&results, clocks)
 	}
+	f_mult := f64(freq) / f64(1_000_000_000)
+	sum: f64
+	min_clock: f64 = f64(1 << 16)
+	max_clock: f64
+	for r in results {sum += r;min_clock = min(min_clock, r);max_clock = max(max_clock, r)}
+	mean := sum / f64(len(results))
+	slice.sort(results[:])
+	median := results[len(results) / 2]
+	fmt.printf("Performance for `%v` and str: `%v` (n_runs: %v)\n", regex, str, n_runs)
+	fmt.printf("(nanoseconds): Min: %.0f, Max: %.0f, Median: %.0f, Mean: %.0f\n", min_clock, max_clock, median, mean)
+	// objective :: <1us - c/odin perf is ~2x in regex, spall is another 2x cost when on
 }
 
-// Recursively fills a `sb` with the ast
-print_ast :: proc(expr: ^Expr, sb: ^strings.Builder, depth := 0) {
-	depth := depth
-	if depth > 0 {
-		strings.write_string(sb, strings.repeat(" ", depth))
+@(test)
+test_optional :: proc(t: ^testing.T) {
+	regex := "a?"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	{
+		str := "b"
+		m := match(&nfa, str)
+		assert(m == false, "b matched a?")
+	};{
+		str := "a"
+		m := match(&nfa, str)
+		assert(m == true, "a did not match a?")
+	};{
+		str := ""
+		m := match(&nfa, str)
+		assert(m == true, "'' did not match `a?`")
 	}
-	strings.write_string(sb, "Expr(")
-	strings.write_int(sb, len(expr.terms))
-	strings.write_string(sb, ")\n")
-	depth += 2
-	for term in expr.terms {
-		depth -= 1
-		strings.write_string(sb, strings.repeat(" ", depth))
-		strings.write_string(sb, "Term(")
-		strings.write_int(sb, len(term.factors))
-		strings.write_string(sb, ")\n")
-		depth += 1
-		for factor in term.factors {
-			strings.write_string(sb, strings.repeat(" ", depth))
-			strings.write_string(sb, "Factor: ")
-			switch f in factor {
-			case (Anchor_Start):
-				strings.write_string(sb, "(Anchor_Start)")
-			case (Anchor_End):
-				strings.write_string(sb, "(Anchor_End)")
-			case (FactoredAtom):
-				q, qok := f.quantifier.?
-				switch a in f.atom {
-				case (Group):
-					strings.write_string(sb, "Group(\n")
-					grp := Expr(a)
-					print_ast(&grp, sb, depth + 1)
-					strings.write_string(sb, strings.repeat(" ", depth))
-					strings.write_string(sb, ")")
-				case (rune):
-					strings.write_string(sb, "Literal '")
-					strings.write_rune(sb, a)
-					strings.write_string(sb, "'")
-				case (Charset):
-					strings.write_string(sb, "[")
-					if a.caret {
-						strings.write_string(sb, "^")
-					}
-					for cs in a.specifiers {
-						switch s in cs {
-						case (EscapeSequence):
-							if rc, rok := s.(RegexCommand); rok {
-								strings.write_rune(sb, rune('\\'))
-								strings.write_rune(sb, rune(rc))
-							} else {
-								esc := fmt.tprintf("\\%v", s)
-								strings.write_string(sb, esc)
-							}
-						case (Range):
-							strings.write_rune(sb, rune(s.min))
-							if s.max != s.min {
-								strings.write_rune(sb, rune('-'))
-								strings.write_rune(sb, rune(s.max))
-							}
-						case (rune):
-							strings.write_rune(sb, s)
-						}
-
-					}
-
-					strings.write_string(sb, "]")
-
-				case (Wildcard):
-					strings.write_string(sb, ".")
-				case (EscapeSequence):
-					if rc, rok := a.(RegexCommand); rok {
-						strings.write_rune(sb, rune('\\'))
-						strings.write_rune(sb, rune(rc))
-					} else {
-						esc := fmt.tprintf("\\%v", a)
-						strings.write_string(sb, esc)
-					}
-				}
-				if qok {
-					if q.min == 0 && q.max == 1 {
-						strings.write_string(sb, "?")
-					} else if q.min == 0 && q.max == -1 {
-						strings.write_string(sb, "*")
-					} else if q.min == 1 && q.max == -1 {
-						strings.write_string(sb, "+")
-					} else {
-						qrange := fmt.tprintf("{%v,%v}", q.min, q.max)
-						strings.write_string(sb, qrange)
-					}
-					if q.nongreedy {
-						strings.write_string(sb, "?")
-					}
-				}
-
-			}
-			strings.write_string(sb, "\n")
-		}
+}
+@(test)
+test_asterisk :: proc(t: ^testing.T) {
+	regex := "a*"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	{
+		str := "b"
+		m := match(&nfa, str)
+		assert(m == false, "b matched a*")
+	};{
+		str := ""
+		m := match(&nfa, str)
+		assert(m == true, "'' did not match `a*`")
+	};{
+		str := "a"
+		m := match(&nfa, str)
+		assert(m == true, "a did not match a*")
+	};{
+		str := "aaa"
+		m := match(&nfa, str)
+		assert(m == true, "aaa did not match a*")
+	}
+}
+@(test)
+test_plus :: proc(t: ^testing.T) {
+	regex := "a+"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	{
+		str := "b"
+		m := match(&nfa, str)
+		assert(m == false, "b matched a+")
+	};{
+		str := ""
+		m := match(&nfa, str)
+		assert(m == false, "'' matched `a+`")
+	};{
+		str := "a"
+		m := match(&nfa, str)
+		assert(m == true, "a did not match a+")
+	};{
+		str := "aaa"
+		m := match(&nfa, str)
+		assert(m == true, "aaa did not match a+")
+	}
+}
+@(test)
+test_alt :: proc(t: ^testing.T) {
+	regex := "a|b"
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	{
+		str := ""
+		m := match(&nfa, str)
+		assert(m == false, "'' matched a|b")
+	};{
+		str := "a"
+		m := match(&nfa, str)
+		assert(m == true, "a did not match a|b")
+	};{
+		str := "b"
+		m := match(&nfa, str)
+		assert(m == true, "b did not match a|b")
+	};{
+		str := "c"
+		m := match(&nfa, str)
+		assert(m == false, "c matched a|b")
 	}
 }

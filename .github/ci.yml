@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Setup Odin compiler
+        run: |
+          git clone --depth 1 https://github.com/odin-lang/Odin.git
+          cd Odin
+          ./build_odin.sh
+
+      - name: Run Unit Tests
+        run: |
+          export PATH=$PATH:$(pwd)/Odin
+          echo ls
+          odin test .

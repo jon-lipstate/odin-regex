@@ -47,7 +47,7 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 			if test_bit_unchecked(active_states, state) {continue}
 			ba.set(active_states, state)
 			for t in nfa.transitions[state] {
-				if t.match != (Epsilon{}) { break }
+				if t.match != (Epsilon{}) {break}
 				if !test_bit_unchecked(active_states, t.to) {
 					set_bit_unchecked(active_states, t.to)
 					append(&stack, t.to)
@@ -70,14 +70,15 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 					update_active_states(nfa, next_states, t.to)
 					set_bit_unchecked(next_states, t.to)
 					if t.group != 0 {
-						if t.group < 0 {
-							append(&group_stacks, Pair(int){abs(t.group), i})
-							fmt.println("add to grp-stack", t.group, i)
-						} else {
-							grp := pop(&group_stacks)
-							assert(grp.b == t.group)
-							fmt.printf("Group %v [%v:%v], (%v)\n", t.group, grp.b, i + 1, input[grp.b:i + 1])
-						}
+						// fmt.println("Group", t.group)
+						// if t.group < 0 {
+						// 	append(&group_stacks, Pair(int){abs(t.group), i})
+						// 	fmt.println("add to grp-stack", t.group, i)
+						// } else {
+						// 	grp := pop(&group_stacks)
+						// 	assert(grp.b == t.group, "Groups didnt match from the stack")
+						// 	fmt.printf("Group %v [%v:%v], (%v)\n", t.group, grp.b, i + 1, input[grp.b:i + 1])
+						// }
 					}
 				}
 			}
