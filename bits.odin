@@ -20,7 +20,7 @@ set_bit_range_inverted :: #force_inline proc(b: ^Bit_Array, r: Range) #no_bounds
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	for i := 0; i <= b.max_index; i += 1 {
 		if i < r.min || i > r.max {
-			set_bit_unchecked(b, i)
+			set_bit_unchecked(b, i) // TODO(Jon): i think this may be wrong, should really do set ~i
 		}
 	}
 }

@@ -30,7 +30,7 @@ print_ast :: proc(expr: ^Expr, sb: ^strings.Builder, depth := 0) {
 			case (FactoredAtom):
 				q, qok := f.quantifier.?
 				switch a in f.atom {
-				case (Group):
+				case (GroupExpr):
 					strings.write_string(sb, "Group(\n")
 					grp := Expr(a)
 					print_ast(&grp, sb, depth + 1)

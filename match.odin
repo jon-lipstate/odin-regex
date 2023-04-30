@@ -3,6 +3,42 @@ package regex
 import "core:fmt"
 import ba "core:container/bit_array"
 
+// TODO (Jon/Andreas): After basic impl, refactor to a single/backing array, groups are sliced into it.
+// Indexing: match_index * group_index
+
+// Matches :: struct {
+//     matches: []Match,
+//     _matrix: Matrix(Span),
+// }
+// Matrix :: struct(T:typeid) {
+//     data: [^]T,
+//     rows, cols: int,
+// }
+// make_matches :: proc () -> (result: Matches) {
+//     result._matrix.data = make([^]Span, num_matches * num_groups)
+//     result._matrix.rows = num_groups
+//     result._matrix.cols = num_matches
+
+//     result.matches = make([]Match, num_matches)
+
+//     for match, i in &result.matches {
+//         match = Match{
+//             span   = result._matrix.data[i * num_groups],
+//             groups = result._matrix.data[i * num_groups + 1: i * num_groups + num_groups]
+//         }
+//     }
+
+//     return
+// }
+
+Span :: struct {
+	begin, end: int,
+}
+Match :: struct {
+	using span: Span,
+	groups:     []Span,
+}
+
 // TODO (jon): NO RUNES - ONLY u8??
 match_transition :: proc(m: MatchKind, input: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
@@ -22,8 +58,8 @@ match_transition :: proc(m: MatchKind, input: rune) -> bool {
 	}
 	return result
 }
-
-match :: proc(nfa: ^NFA, input: string) -> bool {
+// TODO(jon): remove dynamic on return
+match :: proc(nfa: ^NFA, input: string) -> (matches: [dynamic]Match, found_any: bool) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	@(static)
 	states_a, states_b: ba.Bit_Array
@@ -35,27 +71,17 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 	current_states := &states_a
 	next_states := &states_b
 
-	update_active_states :: proc(nfa: ^NFA, active_states: ^Bit_Array, state: int) #no_bounds_check {
-		TRACE(&spall_ctx, &spall_buffer, #procedure)
-		@(static)
-		stack: [dynamic]int
-		append(&stack, state)
-		defer clear(&stack)
+	@(static)
+	group_stack: [dynamic]int // Char-Index on Entering a Group
 
-		for len(stack) > 0 {
-			state := pop(&stack)
-			if test_bit_unchecked(active_states, state) {continue}
-			ba.set(active_states, state)
-			for t in nfa.transitions[state] {
-				if t.match != (Epsilon{}) {break}
-				if !test_bit_unchecked(active_states, t.to) {
-					set_bit_unchecked(active_states, t.to)
-					append(&stack, t.to)
-				}
-			}
-		}
+	matches = [dynamic]Match{}
+	defer if !found_any {
+		for m in matches {delete(m.groups)}
+		delete(matches)
+		matches = nil
 	}
-	group_stacks: [dynamic]Pair(int)
+	current_match := 0
+	append(&matches, Match{groups = make([]Span, nfa.next_group_id - 1)})
 
 	strlen := len(input)
 	update_active_states(nfa, current_states, nfa.start)
@@ -70,15 +96,13 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 					update_active_states(nfa, next_states, t.to)
 					set_bit_unchecked(next_states, t.to)
 					if t.group != 0 {
-						// fmt.println("Group", t.group)
-						// if t.group < 0 {
-						// 	append(&group_stacks, Pair(int){abs(t.group), i})
-						// 	fmt.println("add to grp-stack", t.group, i)
-						// } else {
-						// 	grp := pop(&group_stacks)
-						// 	assert(grp.b == t.group, "Groups didnt match from the stack")
-						// 	fmt.printf("Group %v [%v:%v], (%v)\n", t.group, grp.b, i + 1, input[grp.b:i + 1])
-						// }
+						if t.group < 0 {
+							append(&group_stack, i)
+						} else {
+							slice_start := pop(&group_stack)
+							// Invariant: Group_Id starts at 1, id-1 for zero-indexing:
+							matches[current_match].groups[t.group - 1] = Span{slice_start, i + 1}
+						}
 					}
 				}
 			}
@@ -89,6 +113,27 @@ match :: proc(nfa: ^NFA, input: string) -> bool {
 	// fmt.println("current_states", current_states.m)
 	// fmt.println("next_states", next_states.m)
 	// Check if the final state is active
-	if test_bit_unchecked(current_states, nfa.end) {return true}
-	return false
+	found_any = test_bit_unchecked(current_states, nfa.end)
+	return
+}
+
+update_active_states :: proc(nfa: ^NFA, active_states: ^Bit_Array, state: int) #no_bounds_check {
+	TRACE(&spall_ctx, &spall_buffer, #procedure)
+	@(static)
+	stack: [dynamic]int
+	append(&stack, state)
+	defer clear(&stack)
+
+	for len(stack) > 0 {
+		state := pop(&stack)
+		if test_bit_unchecked(active_states, state) {continue}
+		set_bit_unchecked(active_states, state)
+		for t in nfa.transitions[state] {
+			if t.match != ɛ {break}
+			if !test_bit_unchecked(active_states, t.to) {
+				set_bit_unchecked(active_states, t.to)
+				append(&stack, t.to)
+			}
+		}
+	}
 }

@@ -20,5 +20,5 @@ jobs:
       - name: Run Unit Tests
         run: |
           export PATH=$PATH:$(pwd)/Odin
-          echo ls
           odin test .
+          odin test . -test-name:test_perf -o:speed -disable-assert -no-bounds-check

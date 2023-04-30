@@ -15,7 +15,7 @@ Automata :: struct {
 	end:   int,
 }
 NFA :: struct {
-	// invariant: all epsilon-transitions are at the beginning of the array.
+	// Invariant: All `Transitions` are sorted such that ɛ-transitions are at the beginning.
 	transitions:   [dynamic]Transitions,
 	start:         int,
 	end:           int,
@@ -124,7 +124,7 @@ compile_factor :: proc(nfa: ^NFA, factor: Factor, start: int) -> (end: int) {
 		switch atom in f.atom {
 		case (Literal):
 			end = compile_rune(nfa, atom, start)
-		case (Group):
+		case (GroupExpr):
 			end = compile_expr(nfa, Expr(atom), start)
 			for t in &nfa.transitions[start] {
 				t.group = -1 * nfa.next_group_id
@@ -344,7 +344,7 @@ add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind, group: i
 	// maintain the invariant of having all epsilon-transitions at the beginning.
 	// it's possible to make this faster by finding the target position via binary search,
 	// but for small-ish arrays this is plenty fast.
-	for i := len(transitions) - 1; i > 0 && transitions[i-1].match != (Epsilon{}); i -= 1 {
-		transitions[i-1], transitions[i] = transitions[i], transitions[i-1]
+	for i := len(transitions) - 1; i > 0 && transitions[i - 1].match != (Epsilon{}); i -= 1 {
+		transitions[i - 1], transitions[i] = transitions[i], transitions[i - 1]
 	}
 }

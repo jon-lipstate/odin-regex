@@ -488,7 +488,7 @@ parse_regex_command :: proc(ch: u8) -> RegexCommand {
 		return .Invalid
 	}
 }
-parse_group :: proc(p: ^Parser, allocator := context.allocator) -> (group: Group, err: Parse_Error) {
+parse_group :: proc(p: ^Parser, allocator := context.allocator) -> (group: GroupExpr, err: Parse_Error) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	ch, eof := peek(p)
 	// fmt.println("parse_group", rune(ch))
@@ -497,7 +497,7 @@ parse_group :: proc(p: ^Parser, allocator := context.allocator) -> (group: Group
 	advance(p) // eat '('
 	expr: Expr
 	expr, err = parse_expr(p, allocator)
-	group = Group(expr)
+	group = GroupExpr(expr)
 	if err != .Ok {return}
 	ch, eof = peek(p)
 	if eof {err = .Unexpected_EOF;return}
@@ -527,7 +527,7 @@ destroy_expr :: proc(expr: ^Expr) {
 		for factor in &term.factors {
 			if fa, ok := &factor.(FactoredAtom); ok {
 				#partial switch fa in &fa.atom {
-				case (Group):
+				case (GroupExpr):
 					grp := Expr(fa)
 					destroy_expr(&grp)
 				case (Charset):
@@ -557,7 +557,7 @@ FactoredAtom :: struct {
 }
 Atom :: union {
 	Literal,
-	Group,
+	GroupExpr,
 	Charset,
 	Wildcard,
 	EscapeSequence,
@@ -575,7 +575,7 @@ Range :: struct {
 	min: int,
 	max: int,
 }
-Group :: distinct Expr
+GroupExpr :: distinct Expr
 Charset :: struct {
 	specifiers: [dynamic]CharsetSpecifier,
 	caret:      bool,
