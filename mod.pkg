@@ -7,9 +7,8 @@
     readme: "readme.md",
     license: "BSD-3",
     keywords:["regex","nfa"],
-    kind:"demo", // "library"
-    maintainance: "in-development", // "active" | "abandoned" | "stable"
-    os:["Linux","Windows","Darwin"], // "essence" | ..?
+    kind:"Library", 
+    os:["Linux","Windows","Darwin","Essence"],
     compiler:"dev-2023-05",
     dependencies: {
         abc: "1.2.3",
