@@ -42,22 +42,19 @@ Match :: struct {
 
 match_transition :: proc(m: MatchKind, input: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	result := false
 	switch value in m {
-	case Epsilon:
-		result = input == 0
 	case rune:
-		result = input == value
+		return input == value
 	case Rune_Class:
-		result = is_rune_in_set(input, {runes = {value}})
+		return is_rune_in_set(input, {runes = {value}})
 	case Rune_Set:
-		result = is_rune_in_set(input, value)
+		return is_rune_in_set(input, value)
 	case Anchor_Start:
 		unimplemented()
 	case Anchor_End:
 		unimplemented()
 	}
-	return result
+	return false
 }
 // TODO(jon): remove dynamic on return
 match :: proc(nfa: ^NFA, input: string) -> (matches: [dynamic]Match, found_any: bool) {
@@ -103,7 +100,7 @@ match :: proc(nfa: ^NFA, input: string) -> (matches: [dynamic]Match, found_any: 
 				if test_bit_unchecked(next_states, t.to) {continue}
 				if match_transition(t.match, r) {
 					update_active_states(nfa, next_states, t.to)
-					set_bit_unchecked(next_states, t.to)
+					// set_bit_unchecked(next_states, t.to)
 
 					current_match.begin = min(current_match.begin, i)
 					current_match.end = max(current_match.end, i + 1)
@@ -125,6 +122,15 @@ match :: proc(nfa: ^NFA, input: string) -> (matches: [dynamic]Match, found_any: 
 		// swap pointers:
 		current_states, next_states = next_states, current_states
 
+		is_active := false
+		for bits in current_states.bits {
+			if bits != 0 {
+				is_active = true
+				break
+			}
+		}
+
+		/*
 		at_end_state := test_bit_unchecked(current_states, nfa.end)
 		if at_end_state {
 			// fmt.println("at_end_state")
@@ -150,6 +156,7 @@ match :: proc(nfa: ^NFA, input: string) -> (matches: [dynamic]Match, found_any: 
 				break // halt at first match
 			}
 		}
+		*/
 	}
 	// if nfa.global && !test_bit_unchecked(current_states, nfa.end) {
 	// 	// we preemptively allocate a group after last one closed, so need to discard
@@ -178,8 +185,7 @@ update_active_states :: proc(nfa: ^NFA, active_states: ^Bit_Array, state: int) #
 		if test_bit_unchecked(active_states, state) {continue}
 		set_bit_unchecked(active_states, state)
 		for t in nfa.transitions[state] {
-			if is_epsilon(t.match) {break}
-			if !test_bit_unchecked(active_states, t.to) {
+			if t.match == nil && !test_bit_unchecked(active_states, t.to) {
 				set_bit_unchecked(active_states, t.to)
 				append(&stack, t.to)
 			}

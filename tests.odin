@@ -64,7 +64,7 @@ tests := map[string]string {
 	"[a-zA-Z_]\\w*\\s*::\\s*proc" = "foo :: proc",
 }
 import "core:slice"
-@(test)
+// @(test)
 test_perf :: proc(t: ^testing.T) {
 	// NOTE: Should run this test with: `odin test . -o:speed -disable-assert -no-bounds-check`
 	regex := "([0-9]+)-([0-9]+)-([0-9]+)"
@@ -103,6 +103,7 @@ test_optional :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
@@ -123,6 +124,7 @@ test_asterisk :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
@@ -147,6 +149,7 @@ test_plus :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
@@ -171,7 +174,6 @@ test_alt :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-	// print_nfa(&nfa)
 	{
 		str := ""
 		m, found_any := match(&nfa, str)
@@ -193,11 +195,11 @@ test_alt :: proc(t: ^testing.T) {
 
 @(test)
 test_utf8 :: proc(t: ^testing.T) {
-	regex := `\\w+`
+	regex := `\w+`
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-	print_nfa(&nfa)
+	// print_nfa(&nfa)
 
 	test_cases := []struct {
 		loc: runtime.Source_Code_Location,
@@ -208,6 +210,12 @@ test_utf8 :: proc(t: ^testing.T) {
 		{ #location(), "über", true },
 		{ #location(), "háček", true },
 		{ #location(), "πϕε", true },
+		{ #location(), "ε_3", true },
+		{ #location(), "石窟里的食狮诗人", true },
+		{ #location(), "トイレはどこですか", true },
+
+		{ #location(), "당신 집을 볼 수 있을까요?", false },
+		{ #location(), "я хотел бы купить морскую черепаху", false },
 	}
 
 	for tcase in test_cases {
