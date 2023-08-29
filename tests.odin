@@ -4,6 +4,7 @@ import "core:testing"
 import "core:strings"
 import "core:strconv"
 import "core:intrinsics"
+import "core:runtime"
 import "core:time"
 import _spall "core:prof/spall"
 spall :: _spall
@@ -153,7 +154,7 @@ test_plus :: proc(t: ^testing.T) {
 	};{
 		str := ""
 		m, found_any := match(&nfa, str)
-		testing.expect(t, found_any == false, "'' matched `a+`")
+		testing.expect(t, found_any == false, "'' matched a+")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
@@ -187,5 +188,30 @@ test_alt :: proc(t: ^testing.T) {
 		str := "c"
 		m, found_any := match(&nfa, str)
 		testing.expect(t, found_any == false, "c matched a|b")
+	}
+}
+
+@(test)
+test_utf8 :: proc(t: ^testing.T) {
+	regex := `\\w+`
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	print_nfa(&nfa)
+
+	test_cases := []struct {
+		loc: runtime.Source_Code_Location,
+		str: string,
+		should_match: bool,
+	} {
+		{ #location(), "foo", true },
+		{ #location(), "über", true },
+		{ #location(), "háček", true },
+		{ #location(), "πϕε", true },
+	}
+
+	for tcase in test_cases {
+		m, found_any := match(&nfa, tcase.str)
+		testing.expect_value(t, found_any, tcase.should_match, tcase.loc)
 	}
 }
