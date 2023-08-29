@@ -129,6 +129,9 @@ match :: proc(nfa: ^NFA, input: string) -> (matches: [dynamic]Match, found_any: 
 				break
 			}
 		}
+		if !is_active {
+			break
+		}
 
 		/*
 		at_end_state := test_bit_unchecked(current_states, nfa.end)

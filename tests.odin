@@ -64,7 +64,7 @@ tests := map[string]string {
 	"[a-zA-Z_]\\w*\\s*::\\s*proc" = "foo :: proc",
 }
 import "core:slice"
-// @(test)
+@(test)
 test_perf :: proc(t: ^testing.T) {
 	// NOTE: Should run this test with: `odin test . -o:speed -disable-assert -no-bounds-check`
 	regex := "([0-9]+)-([0-9]+)-([0-9]+)"
@@ -216,6 +216,8 @@ test_utf8 :: proc(t: ^testing.T) {
 
 		{ #location(), "당신 집을 볼 수 있을까요?", false },
 		{ #location(), "я хотел бы купить морскую черепаху", false },
+		{ #location(), "&*.<>", false },
+		{ #location(), "♣×∥▼♫", false },
 	}
 
 	for tcase in test_cases {
