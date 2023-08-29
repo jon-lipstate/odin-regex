@@ -2,6 +2,7 @@ package regex
 //
 import "core:fmt"
 import ba "core:container/bit_array"
+import "core:unicode"
 
 // TODO (Jon/Andreas): After basic impl, refactor to a single/backing array, groups are sliced into it.
 // Indexing: match_index * group_index
@@ -39,7 +40,6 @@ Match :: struct {
 	groups:     []Span,
 }
 
-// TODO (jon): NO RUNES - ONLY u8??
 match_transition :: proc(m: MatchKind, input: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	result := false
@@ -48,9 +48,10 @@ match_transition :: proc(m: MatchKind, input: rune) -> bool {
 		result = input == 0
 	case rune:
 		result = input == value
-	case ^Bit_Array:
-		assert(input < 256)
-		result = test_bit_unchecked(value, int(input))
+	case Rune_Class:
+		result = is_rune_in_set(input, {runes = {value}})
+	case Rune_Set:
+		result = is_rune_in_set(input, value)
 	case Anchor_Start:
 		unimplemented()
 	case Anchor_End:
@@ -177,11 +178,61 @@ update_active_states :: proc(nfa: ^NFA, active_states: ^Bit_Array, state: int) #
 		if test_bit_unchecked(active_states, state) {continue}
 		set_bit_unchecked(active_states, state)
 		for t in nfa.transitions[state] {
-			if t.match != ɛ {break}
+			if is_epsilon(t.match) {break}
 			if !test_bit_unchecked(active_states, t.to) {
 				set_bit_unchecked(active_states, t.to)
 				append(&stack, t.to)
 			}
 		}
 	}
+}
+
+is_rune_in_set :: proc(input: rune, set: Rune_Set) -> bool {
+	for subset in set.runes {
+		switch sub in subset {
+		case rune:
+			if sub == input {
+				return !set.invert
+			}
+		case Rune_Range:
+			if input >= sub.start && input < sub.end {
+				return !set.invert
+			}
+		case Rune_Class:
+			switch sub {
+				case .Any:
+					return !set.invert
+				case .Not_Newline:
+					if input != '\n' {
+						return !set.invert
+					}
+				case .Digit:
+					if input >= '0' && input <= '9' {
+						return !set.invert
+					}
+				case .Not_Digit:
+					if !(input >= '0' && input <= '9') {
+						return !set.invert
+					}
+				case .Word:
+					if input == '_' || unicode.is_alpha(input) || unicode.is_number(input) {
+						return !set.invert
+					}
+				case .Not_Word:
+					if !(input == '_' || unicode.is_alpha(input) || unicode.is_number(input)) {
+						return !set.invert
+					}
+				case .Space:
+					if unicode.is_space(input) {
+						return !set.invert
+					}
+				case .Not_Space:
+					if !unicode.is_space(input) {
+						return !set.invert
+					}
+			}
+		}
+	}
+
+	return set.invert
 }

@@ -105,15 +105,15 @@ test_optional :: proc(t: ^testing.T) {
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "b matched a?")
+		testing.expect(t, found_any == false, "b matched a?")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a?")
+		testing.expect(t, found_any == true, "a did not match a?")
 	};{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "'' did not match `a?`")
+		testing.expect(t, found_any == true, "'' did not match `a?`")
 	}
 }
 @(test)
@@ -125,19 +125,19 @@ test_asterisk :: proc(t: ^testing.T) {
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "b matched a*")
+		testing.expect(t, found_any == false, "b matched a*")
 	};{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "'' did not match `a*`")
+		testing.expect(t, found_any == true, "'' did not match `a*`")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a*")
+		testing.expect(t, found_any == true, "a did not match a*")
 	};{
 		str := "aaa"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "aaa did not match a*")
+		testing.expect(t, found_any == true, "aaa did not match a*")
 	}
 }
 @(test)
@@ -149,19 +149,19 @@ test_plus :: proc(t: ^testing.T) {
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "b matched a+")
+		testing.expect(t, found_any == false, "b matched a+")
 	};{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "'' matched `a+`")
+		testing.expect(t, found_any == false, "'' matched `a+`")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a+")
+		testing.expect(t, found_any == true, "a did not match a+")
 	};{
 		str := "aaa"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "aaa did not match a+")
+		testing.expect(t, found_any == true, "aaa did not match a+")
 	}
 }
 @(test)
@@ -174,18 +174,18 @@ test_alt :: proc(t: ^testing.T) {
 	{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "'' matched a|b")
+		testing.expect(t, found_any == false, "'' matched a|b")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a|b")
+		testing.expect(t, found_any == true, "a did not match a|b")
 	};{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "b did not match a|b")
+		testing.expect(t, found_any == true, "b did not match a|b")
 	};{
 		str := "c"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "c matched a|b")
+		testing.expect(t, found_any == false, "c matched a|b")
 	}
 }
