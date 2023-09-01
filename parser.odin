@@ -1,9 +1,10 @@
 package regex
 ///
 import "core:fmt"
+import "core:unicode/utf8"
 
 Parser :: struct {
-	data:   []u8,
+	runes:  []rune,
 	offset: int,
 	expr:   Expr,
 }
@@ -14,31 +15,31 @@ Parse_Error :: enum {
 	Unexpected_EOF, //   File Ends before expected (Bad Syntax)
 }
 
-init_parser :: proc(data: string) -> Parser {
+init_parser :: proc(expr_string: string, allocator := context.allocator) -> Parser {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	p := Parser {
-		data   = transmute([]u8)data,
+		runes  = utf8.string_to_runes(expr_string, allocator),
 		offset = 0,
 	}
 	return p
 }
-peek :: proc(p: ^Parser, lookahead := 1) -> (ch: u8, eof: bool = false) {
+peek :: proc(p: ^Parser, lookahead := 0) -> (ch: rune, eof: bool = false) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	if lookahead != 1 {panic("not imple")}
-	if p.offset >= len(p.data) {
+	if lookahead != 0 {panic("not implemented")}
+	if p.offset >= len(p.runes) {
 		eof = true
 	} else {
-		ch = p.data[p.offset]
+		ch = p.runes[p.offset]
 	}
 	return
 }
 // returns current `ch`, advance offset
-advance :: proc(p: ^Parser) -> (ch: u8, eof: bool = false) {
+advance :: proc(p: ^Parser) -> (ch: rune, eof: bool = false) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	if p.offset >= len(p.data) {
+	if p.offset >= len(p.runes) {
 		eof = true
 	} else {
-		ch = p.data[p.offset]
+		ch = p.runes[p.offset]
 		p.offset += 1
 	}
 	return
@@ -234,17 +235,17 @@ parse_atom :: proc(p: ^Parser, allocator := context.allocator) -> (atom: Atom, e
 	return
 }
 // 0-9, \d
-is_digit :: proc(ch: u8) -> bool {
+is_digit :: proc(ch: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	return ch >= '0' && ch <= '9'
 }
 // ( [ . \
-is_atom_start :: proc(ch: u8) -> bool {
+is_atom_start :: proc(ch: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	return ch == '(' || ch == '[' || ch == '.' || ch == '\\'
 }
 // ^$
-is_anchor :: proc(ch: u8) -> bool {
+is_anchor :: proc(ch: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	return ch == '^' || ch == '$'
 }
@@ -438,7 +439,7 @@ parse_literal :: proc(p: ^Parser) -> (literal: Literal, err: Parse_Error) {
 	}
 	return
 }
-is_metacharacter :: proc(ch: u8) -> bool {
+is_metacharacter :: proc(ch: rune) -> bool {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	switch ch {
 	case '\\', '|', '(', ')', '[', ']', '{', '}', '?', '*', '+', '^', '$', '.':
@@ -447,7 +448,7 @@ is_metacharacter :: proc(ch: u8) -> bool {
 		return false
 	}
 }
-parse_regex_command :: proc(ch: u8) -> RegexCommand {
+parse_regex_command :: proc(ch: rune) -> RegexCommand {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	switch ch {
 	case 'd':

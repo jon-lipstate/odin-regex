@@ -6,7 +6,7 @@ print_nfa :: proc(nfa: ^NFA) {
 	for tran, i in nfa.transitions {
 		fmt.printf("State: %v, [", i)
 		for t in tran {
-			fmt.printf("(to = %v, grp = %v, match = %v), ", t.to, t.group, t.match == ɛ ? "Epsilon" : "Mask")
+			fmt.printf("(to = %v, grp = %v, match = %v), ", t.to, t.group, t.match)
 		}
 		fmt.printf("]\n")
 	}

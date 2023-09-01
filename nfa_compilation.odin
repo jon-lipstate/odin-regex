@@ -1,7 +1,6 @@
 package regex
 //
 import "core:fmt"
-import ba "core:container/bit_array"
 
 // TODO(jon): See if i can remove sets entirely?
 import "./set"
@@ -31,15 +30,45 @@ Transition :: struct {
 	group: int, // 0: not a group, -i:start, i:end
 	match: MatchKind,
 }
-Epsilon :: struct {}
-ɛ :: Epsilon{} // const
+// Epsilon :: struct {}
+// ɛ :: nil
 MatchKind :: union {
-	Epsilon,
+	// Epsilon,
 	rune,
-	^Bit_Array,
+	Rune_Class,
+	Rune_Set,
 	Anchor_Start,
 	Anchor_End,
 }
+
+Rune_Set :: struct {
+	runes:  []Rune_Set_Item,
+	invert: bool,
+}
+Rune_Set_Item :: union {
+	rune,
+	Rune_Range,
+	Rune_Class,
+}
+Rune_Range :: struct {
+	start, end: rune,
+}
+Rune_Class :: enum {
+	Any,
+	Not_Newline,
+	// Alpha,
+	Digit,
+	Not_Digit,
+	// XDigit,
+	// Numeric,
+	Word,
+	Not_Word,
+	Space,
+	Not_Space,
+
+	// Punctuation,
+}
+
 make_nfa :: proc(allocator := context.allocator) -> NFA {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	context.allocator = allocator
@@ -91,7 +120,7 @@ compile_expr :: proc(nfa: ^NFA, expr: Expr, start: int, allocator := context.all
 		// end = compile_alt_array(nfa, terms, start)
 		end = add_state(nfa)
 		for te in terms {
-			add_transition(nfa, te, end, ɛ)
+			add_transition(nfa, te, end, nil)
 		}
 	}
 	return
@@ -175,13 +204,7 @@ compile_rune :: proc(nfa: ^NFA, r: rune, start: int) -> (end: int) {
 compile_wildcard :: proc(nfa: ^NFA, start: int) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	end = add_state(nfa)
-	mask := ba.create(256)
-	fmt.println("MASK,LEN==4?", len(mask.bits))
-	assert(len(mask.bits) == 4)
-	for i := 0; i < len(mask.bits); i += 1 {
-		mask.bits[i] = ~u64(0)
-	}
-	add_transition(nfa, start, end, mask)
+	add_transition(nfa, start, end, Rune_Set{ invert = true, runes = nil })
 	return
 }
 
@@ -202,17 +225,17 @@ compile_closure :: proc(nfa: ^NFA, start: int, current_end: int, _min: int, _max
 	// Max-Repeats:
 	for i in max(1, _min) ..< _max {
 		ce := repeat_fragment(nfa, {start, current_end}, local_end)
-		add_transition(nfa, local_end, end, ɛ) // Bypass Further Reps
+		add_transition(nfa, local_end, end, nil) // Bypass Further Reps
 		local_end = ce
 	}
 	assert(end == local_end, "Bad End")
 	if _min == 0 {
 		// Bypass:
-		add_transition(nfa, start, end, ɛ)
+		add_transition(nfa, start, end, nil)
 	}
 	if _max == -1 {
 		// Loopback (*, +, {n,})
-		add_transition(nfa, end, start, ɛ)
+		add_transition(nfa, end, start, nil)
 	}
 	return
 }
@@ -275,71 +298,58 @@ move_to_end :: proc(nfa: ^NFA, start: int, end: int) -> Set(int) {
 WHITESPACE := []rune{' ', '\t', '\v', '\n', '\r', '\f'}
 compile_charset :: proc(nfa: ^NFA, charset: Charset, start: int) -> (end: int) {
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
-	mask := ba.create(256)
+
+	runeset := make([dynamic]Rune_Set_Item)
+
 	for specifier in charset.specifiers {
 		switch s in specifier {
 		case Literal:
-			if charset.caret {set_bit_range_inverted(mask, Range{int(s), int(s)})} else {set_bit_unchecked(mask, int(s))}
+			append(&runeset, s)
 		case Range:
-			if charset.caret {set_bit_range_inverted(mask, s)} else {set_bit_range(mask, s)}
+			append(&runeset, Rune_Range{ rune(s.min), rune(s.max) })
 		case EscapeSequence:
 			switch esc in s {
 			case RegexCommand:
 				switch esc {
 				case .Any_Digit:
-					//\d
-					if charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
+					append(&runeset, Rune_Class.Digit)
 				case .Not_Digit:
-					//\D
-					if !charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
+					append(&runeset, Rune_Class.Not_Digit)
 				case .Any_Whitespace:
-					// \s
-					for w in WHITESPACE {
-						if charset.caret {set_bit_range_inverted(mask, Range{int(w), int(w)})} else {set_bit_unchecked(mask, int(w))}
-					}
+					append(&runeset, Rune_Class.Space)
 				case .Not_Whitespace:
-					// \S
-					for w in WHITESPACE {
-						if !charset.caret {set_bit_range_inverted(mask, Range{int(w), int(w)})} else {set_bit_unchecked(mask, int(w))}
-					}
+					append(&runeset, Rune_Class.Not_Space)
 				case .Any_Word:
-					// \w
-					if charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
-					if charset.caret {set_bit_range_inverted(mask, Range{'a', 'z'})} else {set_bit_range(mask, Range{'a', 'z'})}
-					if charset.caret {set_bit_range_inverted(mask, Range{'A', 'Z'})} else {set_bit_range(mask, Range{'A', 'Z'})}
-					if charset.caret {set_bit_range_inverted(mask, Range{'_', '_'})} else {set_bit_range(mask, Range{'_', '_'})}
+					append(&runeset, Rune_Class.Word)
 				case .Not_Word:
-					// \W
-					if !charset.caret {set_bit_range_inverted(mask, Range{'0', '9'})} else {set_bit_range(mask, Range{'0', '9'})}
-					if !charset.caret {set_bit_range_inverted(mask, Range{'a', 'z'})} else {set_bit_range(mask, Range{'a', 'z'})}
-					if !charset.caret {set_bit_range_inverted(mask, Range{'A', 'Z'})} else {set_bit_range(mask, Range{'A', 'Z'})}
-					if !charset.caret {set_bit_range_inverted(mask, Range{'_', '_'})} else {set_bit_range(mask, Range{'_', '_'})}
+					append(&runeset, Rune_Class.Not_Word)
 				case .Carriage_Return:
-					if charset.caret {set_bit_range_inverted(mask, Range{'\r', '\r'})} else {set_bit_range(mask, Range{'\r', '\r'})}
+					append(&runeset, '\r')
 				case .Newline:
-					if charset.caret {set_bit_range_inverted(mask, Range{'\n', '\n'})} else {set_bit_range(mask, Range{'\n', '\n'})}
+					append(&runeset, '\n')
 				case .Not_Newline:
-					if !charset.caret {set_bit_range_inverted(mask, Range{'\n', '\n'})} else {set_bit_range(mask, Range{'\n', '\n'})}
+					append(&runeset, Rune_Class.Not_Newline)
 				case .Tab:
-					if charset.caret {set_bit_range_inverted(mask, Range{'\t', '\t'})} else {set_bit_range(mask, Range{'\t', '\t'})}
+					append(&runeset, '\t')
 				case .Invalid:
 					panic("INVALID REGEX COMMAND")
 				}
 			case rune:
-				panic("invalid_codepath")
+				append(&runeset, esc)
 			case ControlChar:
 				unimplemented()
 			case OctalCode:
-				if charset.caret {set_bit_range_inverted(mask, Range{int(esc), int(esc)})} else {set_bit_range(mask, Range{int(esc), int(esc)})}
+				append(&runeset, rune(esc))
 			case Codepoint:
-				if charset.caret {set_bit_range_inverted(mask, Range{int(esc), int(esc)})} else {set_bit_range(mask, Range{int(esc), int(esc)})}
+				append(&runeset, rune(esc))
 			case PropertyEscape:
 				unimplemented()
 			}
 		}
 	}
+	shrink(&runeset)
 	end = add_state(nfa)
-	add_transition(nfa, start, end, mask)
+	add_transition(nfa, start, end, Rune_Set{ invert = charset.caret, runes = runeset[:] })
 	return
 }
 
@@ -347,13 +357,13 @@ add_transition :: proc(nfa: ^NFA, from: int, to: int, match: MatchKind, group: i
 	TRACE(&spall_ctx, &spall_buffer, #procedure)
 	transition := Transition{to, group, match}
 	transitions := &nfa.transitions[from]
-	for t in transitions {if t == transition {return}}
+	// for t in transitions {if t == transition {return}}
 	append(transitions, transition)
 
 	// Maintain the invariant of having all ɛ-transitions at the beginning.
 	// it's possible to make this faster by finding the target position via binary search,
 	// but for small-ish arrays this is plenty fast.
-	for i := len(transitions) - 1; i > 0 && transitions[i - 1].match != ɛ; i -= 1 {
+	for i := len(transitions) - 1; i > 0 && transitions[i - 1].match == nil; i -= 1 {
 		transitions[i - 1], transitions[i] = transitions[i], transitions[i - 1]
 	}
 }

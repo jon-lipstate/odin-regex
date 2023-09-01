@@ -4,6 +4,7 @@ import "core:testing"
 import "core:strings"
 import "core:strconv"
 import "core:intrinsics"
+import "core:runtime"
 import "core:time"
 import _spall "core:prof/spall"
 spall :: _spall
@@ -102,18 +103,19 @@ test_optional :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "b matched a?")
+		testing.expect(t, found_any == false, "b matched a?")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a?")
+		testing.expect(t, found_any == true, "a did not match a?")
 	};{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "'' did not match `a?`")
+		testing.expect(t, found_any == true, "'' did not match `a?`")
 	}
 }
 @(test)
@@ -122,22 +124,23 @@ test_asterisk :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "b matched a*")
+		testing.expect(t, found_any == false, "b matched a*")
 	};{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "'' did not match `a*`")
+		testing.expect(t, found_any == true, "'' did not match `a*`")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a*")
+		testing.expect(t, found_any == true, "a did not match a*")
 	};{
 		str := "aaa"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "aaa did not match a*")
+		testing.expect(t, found_any == true, "aaa did not match a*")
 	}
 }
 @(test)
@@ -146,22 +149,23 @@ test_plus :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
 	{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "b matched a+")
+		testing.expect(t, found_any == false, "b matched a+")
 	};{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "'' matched `a+`")
+		testing.expect(t, found_any == false, "'' matched a+")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a+")
+		testing.expect(t, found_any == true, "a did not match a+")
 	};{
 		str := "aaa"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "aaa did not match a+")
+		testing.expect(t, found_any == true, "aaa did not match a+")
 	}
 }
 @(test)
@@ -170,22 +174,54 @@ test_alt :: proc(t: ^testing.T) {
 	p := init_parser(regex)
 	expr, err := parse_expr(&p);defer destroy_expr(&expr)
 	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
-	// print_nfa(&nfa)
 	{
 		str := ""
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "'' matched a|b")
+		testing.expect(t, found_any == false, "'' matched a|b")
 	};{
 		str := "a"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "a did not match a|b")
+		testing.expect(t, found_any == true, "a did not match a|b")
 	};{
 		str := "b"
 		m, found_any := match(&nfa, str)
-		assert(found_any == true, "b did not match a|b")
+		testing.expect(t, found_any == true, "b did not match a|b")
 	};{
 		str := "c"
 		m, found_any := match(&nfa, str)
-		assert(found_any == false, "c matched a|b")
+		testing.expect(t, found_any == false, "c matched a|b")
+	}
+}
+
+@(test)
+test_utf8 :: proc(t: ^testing.T) {
+	regex := `\w+`
+	p := init_parser(regex)
+	expr, err := parse_expr(&p);defer destroy_expr(&expr)
+	nfa := compile_nfa(expr);defer destroy_nfa(&nfa)
+	// print_nfa(&nfa)
+
+	test_cases := []struct {
+		loc: runtime.Source_Code_Location,
+		str: string,
+		should_match: bool,
+	} {
+		{ #location(), "foo", true },
+		{ #location(), "über", true },
+		{ #location(), "háček", true },
+		{ #location(), "πϕε", true },
+		{ #location(), "ε_3", true },
+		{ #location(), "石窟里的食狮诗人", true },
+		{ #location(), "トイレはどこですか", true },
+
+		{ #location(), "당신 집을 볼 수 있을까요?", false },
+		{ #location(), "я хотел бы купить морскую черепаху", false },
+		{ #location(), "&*.<>", false },
+		{ #location(), "♣×∥▼♫", false },
+	}
+
+	for tcase in test_cases {
+		m, found_any := match(&nfa, tcase.str)
+		testing.expect_value(t, found_any, tcase.should_match, tcase.loc)
 	}
 }
